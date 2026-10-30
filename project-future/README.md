@@ -16,6 +16,7 @@ ledger and a joint review at the end.
 | `PROJECT_FUTURE_Presentation.pptx` | **The deliverable.** Fully editable PowerPoint, 13 slides, speaker notes on every slide. |
 | `PROJECT_FUTURE_Presentation_review.pdf` | A flat PDF rendering of all 13 slides — for quick reading on a phone or before opening PowerPoint. |
 | `PROJECT_FUTURE_Supporting_Documents.docx` | Executive summary, financial summary, accountability agreement, 14 parental Q&A, and the complete speaking script. |
+| `PROJECT_FUTURE_complete_package.zip` | Everything above in one download (deck, PDF, document, README, source, previews). |
 | `previews/` | PNG rendering of each slide (build artefacts). |
 | `src/` | The Python source that generates the deck and the document. |
 
