@@ -1,6 +1,0 @@
-node_modules/
-dist/
-.playwright/
-test-results/
-playwright-report/
-.DS_Store
