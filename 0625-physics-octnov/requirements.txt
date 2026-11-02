@@ -1,0 +1,4 @@
+# Tooling for assembling Cambridge IGCSE Physics (0625) past papers.
+# Install with:  pip install -r requirements.txt
+pypdf>=4.0        # read, verify and merge the source PDFs
+reportlab>=4.0    # generate the metadata-only contents page
