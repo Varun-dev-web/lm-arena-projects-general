@@ -182,6 +182,28 @@ def main() -> int:
             ok = False
             print("!! case 4 FAILED: mirror download was not gated")
 
+        # --- case 5: oddly-named files must still be matched by header ----
+        src5 = tmp / "papers5"
+        src5.mkdir()
+        for y in YEARS:
+            for c in COMPS:
+                for k in ("qp", "ms"):
+                    p = make_synthetic(src5, y, c, k, pages=3)
+                    p.rename(src5 / f"physics {y} paper {c} {k} download.pdf")
+        r5 = run(["--from-dir", str(src5), "--outdir", str(tmp / "out5"),
+                  "--no-contents"])
+        print("\n== case 5: every file renamed to an arbitrary name ==")
+        print(r5.stdout.strip() or r5.stderr.strip())
+        if r5.returncode != 0 or "Verified 30/30" not in r5.stdout:
+            ok = False
+            print("!! case 5 FAILED: header-based matching did not work")
+        got5 = len(PdfReader(str(tmp / "out5" /
+                 "0625_Physics_OctNov_2021-2025_QP41-43_with_MS.pdf")).pages)
+        print(f"   pages={got5} expected=90")
+        if got5 != 90:
+            ok = False
+            print("!! case 5 page count mismatch")
+
     print("\n" + ("SELF-TEST PASSED" if ok else "SELF-TEST FAILED"))
     return 0 if ok else 1
 

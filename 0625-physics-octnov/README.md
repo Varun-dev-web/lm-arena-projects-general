@@ -17,22 +17,28 @@ October/November question papers and mark schemes for components **41, 42 and
 | `COMPLETION_REPORT.md` | Feasibility verdict, year range, limitations |
 | `SOURCE_MANIFEST.md` | All 30 documents: year, component, type, host, URL, verification status |
 | `SOURCE_MANIFEST.csv` | Same data, machine-readable |
+| `EXPECTED_FILES.txt` | The exact 30 filenames to download, ready to work from |
 | `assemble_0625_octnov.py` | Downloads/verifies/merges the papers into the combined PDF |
 | `selftest.py` | Proves the verifier and merge logic work (synthetic PDFs only) |
 | `requirements.txt` | `pypdf`, `reportlab` |
 
-## Quick start
+## Quick start — bring your own official PDFs
 
 ```bash
 pip install -r requirements.txt
 
-# Put the 30 source PDFs in ./papers, named with the standard Cambridge
-# convention: 0625_w21_qp_41.pdf, 0625_w21_ms_41.pdf, ...
-#   (2021-2025 x components 41/42/43 x qp/ms = 30 files)
-# Official, authorised source: the Cambridge School Support Hub.
-
+# 1. Download the 30 documents listed in EXPECTED_FILES.txt from the
+#    Cambridge School Support Hub (login required; authorised for
+#    classroom use) into ./papers
+# 2. Build:
 python3 assemble_0625_octnov.py --from-dir ./papers
 ```
+
+Filenames do not need to match. The assembler first tries the standard
+Cambridge names (`0625_w21_qp_41.pdf` …) and, if any are missing, falls back to
+reading each PDF's own printed header and matching it to the right slot — so
+oddly-named downloads still assemble correctly. Only files with no text layer
+(scanned images) need to be renamed by hand.
 
 Output: `0625_Physics_OctNov_2021-2025_QP41-43_with_MS.pdf`, ordered by year and
 within each year QP41 → MS41 → QP42 → MS42 → QP43 → MS43, with a metadata-only

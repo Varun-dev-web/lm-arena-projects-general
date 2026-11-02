@@ -159,7 +159,33 @@ def verify(doc: Doc, text: str, pages: int) -> None:
     doc.status = "verified" if not problems else "FAILED"
 
 
-def locate_in_dir(doc: Doc, src: Path) -> bool:
+def probe(path: Path) -> dict:
+    """Detect a document's identity from its own printed header text."""
+    try:
+        text = first_pages_text(path)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    if not text.strip():
+        return {"error": "no text layer (scanned image?) - rename manually"}
+    m_code = re.search(rf"\b({SYLLABUS})\s*/\s*(\d{{2}})\b", text)
+    m_sess = re.search(r"october\s*/\s*november\s*(\d{4})", text, re.I)
+    return {
+        "syllabus": m_code.group(1) if m_code else None,
+        "component": m_code.group(2) if m_code else None,
+        "session": "October/November" if m_sess else None,
+        "year": int(m_sess.group(1)) if m_sess else None,
+        "kind": "ms" if re.search(r"mark\s*scheme", text, re.I) else "qp",
+        "error": None,
+    }
+
+
+def build_index(src: Path) -> list[tuple[Path, dict]]:
+    """Probe every PDF in the folder so files can be matched by content,
+    not just by filename."""
+    return [(p, probe(p)) for p in sorted(src.rglob("*.pdf"))]
+
+
+def locate_by_name(doc: Doc, src: Path) -> bool:
     for pattern in (f"{doc.code}.pdf", f"{doc.code.upper()}.pdf"):
         cand = src / pattern
         if cand.is_file():
@@ -171,6 +197,23 @@ def locate_in_dir(doc: Doc, src: Path) -> bool:
         if hits:
             doc.path = hits[0]
             doc.host = "local folder (user-supplied)"
+            return True
+    return False
+
+
+def locate_by_header(doc: Doc, index: list[tuple[Path, dict]]) -> bool:
+    for path, meta in index:
+        if meta.get("error"):
+            continue
+        if (meta.get("syllabus") == SYLLABUS
+                and meta.get("component") == doc.comp
+                and meta.get("year") == doc.year
+                and meta.get("kind") == doc.kind
+                and meta.get("session") == SESSION):
+            doc.path = path
+            doc.host = "local folder (matched by header, not filename)"
+            doc.notes.append(f"filename '{path.name}' differs from "
+                             f"expected '{doc.code}.pdf'")
             return True
     return False
 
@@ -278,10 +321,7 @@ def main() -> int:
     docs = build_plan(years)
     for d in docs:
         if args.from_dir:
-            if not locate_in_dir(d, args.from_dir):
-                d.status = "missing"
-                d.notes.append(f"no file matching {d.code}.pdf")
-                continue
+            continue        # handled in the two-pass block below
         else:
             tmpl = args.url_template or MIRRORS[args.source]
             url = tmpl.format(year=d.year, yy=str(d.year)[2:],
@@ -292,6 +332,25 @@ def main() -> int:
                 d.status = "missing"
                 continue
             time.sleep(args.delay)
+
+    # Two-pass lookup for a local folder: match by filename first, then fall
+    # back to reading each PDF's own header so oddly-named downloads still work.
+    if args.from_dir:
+        if not args.from_dir.is_dir():
+            sys.exit(f"Not a directory: {args.from_dir}")
+        for d in docs:
+            locate_by_name(d, args.from_dir)
+        if any(d.path is None for d in docs):
+            print("Some files were not named as expected. Scanning the headers "
+                  "of every PDF in the folder to identify them...")
+            index = build_index(args.from_dir)
+            for d in docs:
+                if d.path is None:
+                    locate_by_header(d, index)
+        for d in docs:
+            if d.path is None:
+                d.status = "missing"
+                d.notes.append(f"no file matching {d.code}.pdf")
 
     # Verify every located PDF against its own printed header.
     for d in docs:

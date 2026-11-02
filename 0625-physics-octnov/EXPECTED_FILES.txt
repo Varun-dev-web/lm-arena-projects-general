@@ -1,0 +1,45 @@
+Cambridge IGCSE Physics (0625) — October/November 2021–2025
+Components 41, 42, 43 (Paper 4, Extended Theory) — QP + MS = 30 files
+=====================================================================
+
+Download these 30 documents from the Cambridge School Support Hub
+(https://schoolsupporthub.cambridgeinternational.org/ — login required,
+available to staff at registered Cambridge schools).
+
+Cambridge's own files normally use exactly these names, so if you keep the
+default filenames the assembler finds them instantly. If your downloads come
+out with different names, that is fine too — the assembler reads each PDF's
+own printed header and matches it up automatically.
+
+  papers/0625_w21_qp_41.pdf      papers/0625_w21_ms_41.pdf
+  papers/0625_w21_qp_42.pdf      papers/0625_w21_ms_42.pdf
+  papers/0625_w21_qp_43.pdf      papers/0625_w21_ms_43.pdf
+
+  papers/0625_w22_qp_41.pdf      papers/0625_w22_ms_41.pdf
+  papers/0625_w22_qp_42.pdf      papers/0625_w22_ms_42.pdf
+  papers/0625_w22_qp_43.pdf      papers/0625_w22_ms_43.pdf
+
+  papers/0625_w23_qp_41.pdf      papers/0625_w23_ms_41.pdf
+  papers/0625_w23_qp_42.pdf      papers/0625_w23_ms_42.pdf
+  papers/0625_w23_qp_43.pdf      papers/0625_w23_ms_43.pdf
+
+  papers/0625_w24_qp_41.pdf      papers/0625_w24_ms_41.pdf
+  papers/0625_w24_qp_42.pdf      papers/0625_w24_ms_42.pdf
+  papers/0625_w24_qp_43.pdf      papers/0625_w24_ms_43.pdf
+
+  papers/0625_w25_qp_41.pdf      papers/0625_w25_ms_41.pdf
+  papers/0625_w25_qp_42.pdf      papers/0625_w25_ms_42.pdf
+  papers/0625_w25_qp_43.pdf      papers/0625_w25_ms_43.pdf
+
+Notes
+-----
+- "w" = the October/November (winter) series. Make sure you do NOT download
+  the s (May/June) or m (March) versions — the assembler rejects them, but
+  it is quicker to get it right at download time.
+- Component 41/42/43 are the three regional variants of Paper 4. All three
+  are listed here because all three were requested.
+- Do not substitute the Confidential Instructions (0625_w*_ci_5*.pdf) for
+  any of these; they belong to Paper 5/6, not Paper 4.
+
+Then run:
+    python3 assemble_0625_octnov.py --from-dir ./papers
