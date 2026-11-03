@@ -17,5 +17,10 @@ Emscripten single-file builds (the WASM binary is embedded), so no separate
 `.wasm` fetch is needed. `eng.traineddata.gz` is the smaller integer-quantised
 model, matching the LSTM-only engine mode used by the app.
 
+**v3 adds no new third-party dependency.** The mark-scheme filename parsing, the
+MS question/page index and the second (separate) A4 build are implemented in the
+app's own `web/analyze.js` / `web/app.js`; the QP and MS PDFs are both written
+with the already-bundled jsPDF 2.5.2.
+
 QP Page Finder's own source (`server.py`, `server.js`, `web/*.js`, `web/*.css`,
 `web/index.html`, `tests/`) is provided for your personal local use.

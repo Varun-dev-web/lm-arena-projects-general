@@ -268,3 +268,18 @@ footer code { background: #e9edf6; }
 .capture-line { margin: 6px 0 0; }
 .approve-bar[hidden], .viewer-loading[hidden] { display: none; }
 #cropCanvas { display: block; width: 100%; height: 100%; }
+
+/* v3: two independent folder bars + preview source switch */
+.folder-divider {
+  margin: 22px 0 14px; padding-top: 14px; border-top: 1px dashed var(--line, #d7dce3);
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: #5b6472;
+}
+.folder-divider::after { content: ""; flex: 1; height: 1px; background: var(--line, #d7dce3); }
+#msFolderStatus { color: #6b4f00; }
+#resultsTable th:nth-child(6), #resultsTable td:nth-child(6) { background: rgba(255, 243, 205, .35); }
+.ms-pages { font-weight: 700; color: #7a4f00; }
+.ms-missing { color: #8a5a00; font-style: italic; }
+.approve-bar select { max-width: 190px; }
+#cropSourceBadge { margin-left: 10px; }

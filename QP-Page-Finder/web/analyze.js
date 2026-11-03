@@ -1,4 +1,4 @@
-/* QP Page Finder - analysis engine (v2)
+/* QP Page Finder - analysis engine (v3)
  * Pure, dependency-free JavaScript. Works in the browser (window.QPAnalyze)
  * and in Node (require).
  *
@@ -12,6 +12,12 @@
  *  - POSITIONAL question-number detection (left-margin numbers only).
  *  - Weighted confidence scoring and richer uncertainty reasons.
  *  - Crop hints (line ranges) used by the A4 capture editor.
+ *
+ * v3 additions:
+ *  - seriesCode ("w21", "s25", "m22") on parsed filenames so a mark scheme can
+ *    be matched to its question paper by syllabus + year/session + component.
+ *  - Mark-scheme filename parsing and a question -> exact-PDF-page index built
+ *    from MS table/row markers in the LEFT margin.
  */
 (function (root, factory) {
   'use strict';
@@ -129,12 +135,13 @@
     var base = String(name || '');
     var result = {
       filename: base, syllabus: null, year: null, session: null,
-      component: null, componentLabel: 'Not identifiable', docType: null
+      seriesCode: null, component: null, componentLabel: 'Not identifiable', docType: null
     };
     var m = /\b(\d{4})\s*[_\-. ]\s*([wsm])\s*(\d{2})\s*[_\-. ]\s*(qp|ms|gt|er|ci|in|sp)\s*[_\-. ]\s*(\d{2})\b/i.exec(base);
     if (m) {
       result.syllabus = m[1];
       result.year = 2000 + parseInt(m[3], 10);
+      result.seriesCode = m[2].toLowerCase() + m[3];
       result.session = ({ w: 'October/November', s: 'May/June', m: 'March' })[m[2].toLowerCase()] || null;
       result.docType = m[4].toLowerCase();
       result.component = m[5];
@@ -483,6 +490,7 @@
         filename: filename, component: parsed.component,
         componentLabel: parsed.componentLabel, componentSource: parsed.componentSource || null,
         syllabus: parsed.syllabus, year: parsed.year, session: parsed.session,
+        seriesCode: parsed.seriesCode, docType: parsed.docType,
         question: qnum, questionLabel: qnum === null ? 'Not identifiable' : String(qnum),
         pages: pageNos, pageLabel: label,
         printedPages: printedNos, printedLabel: printedLabel,
@@ -506,9 +514,88 @@
     };
   }
 
+  /* ------------------------------------------------------------------ *
+   * 6. Mark-scheme matching (v3)
+   * ------------------------------------------------------------------ */
+
+  // PapaCambridge MS names look like 0625_w21_ms_41.pdf. Match on syllabus +
+  // year/session code + component, never on the filename alone.
+  function isMarkSchemeName(name) {
+    return /\b\d{4}\s*[_\-. ]\s*[wsm]\s*\d{2}\s*[_\-. ]\s*ms\s*[_\-. ]\s*\d{2}\b/i.test(String(name || '')) ||
+           /[_\-. ]ms[_\-. ]/i.test(String(name || ''));
+  }
+  function markSchemeKey(parsed) {
+    if (!parsed || !parsed.syllabus || !parsed.seriesCode || !parsed.component) return null;
+    return parsed.syllabus + '|' + parsed.seriesCode + '|' + parsed.component;
+  }
+  function matchesQuestionPaper(qp, ms) {
+    if (!qp || !ms || ms.docType !== 'ms' || !qp.syllabus || !qp.seriesCode || !qp.component) return false;
+    return ms.syllabus === qp.syllabus &&
+           ms.seriesCode === qp.seriesCode &&
+           ms.component === qp.component;
+  }
+
+  // Mark schemes use table rows such as "2 (a)  ...  1" or "Question 2".
+  // Only a number in the LEFT margin counts; footer numbers are skipped.
+  function msQuestionAtLine(line) {
+    var t = String(line || '').trim();
+    if (!t || FIGURE_LINE.test(t) || UNIT_LINE.test(t)) return null;
+    var m = /^question\s+(\d{1,2})\b/i.exec(t) ||
+            /^(\d{1,2})\s*\([a-z]\)/.exec(t) ||
+            /^(\d{1,2})\s*\)/.exec(t) ||
+            /^(\d{1,2})\s*\.\s+(?=[A-Za-z])/.exec(t) ||
+            /^(\d{1,2})\s*$/.exec(t) ||
+            /^(\d{1,2})\s+(?=[A-Z])/.exec(t);
+    if (!m) return null;
+    var n = parseInt(m[1], 10);
+    if (n < 1 || n > 20) return null;
+    return n;
+  }
+
+  // pages: [{pdfPage, lines, lineMeta, pageWidth}]
+  // returns { "<qnum>": [{pdfPage, startLine, endLine}, ...] }
+  function indexMarkSchemePages(pages) {
+    var index = {};
+    for (var p = 0; p < (pages || []).length; p++) {
+      var pg = pages[p], lines = pg.lines || [], meta = pg.lineMeta;
+      var footerStart = Math.max(0, lines.length - 3);
+      var markers = [];
+      for (var i = 0; i < lines.length; i++) {
+        if (i >= footerStart && /^\s*\d{1,3}\s*$/.test(String(lines[i] || ''))) continue;
+        var n = msQuestionAtLine(lines[i]);
+        if (n === null) continue;
+        if (meta && pg.pageWidth && meta[i] && typeof meta[i].x === 'number' &&
+            meta[i].x > pg.pageWidth * 0.32) continue;
+        markers.push({ line: i, number: n });
+      }
+      for (var k = 0; k < markers.length; k++) {
+        var key = String(markers[k].number);
+        if (!index[key]) index[key] = [];
+        index[key].push({
+          pdfPage: pg.pdfPage,
+          startLine: markers[k].line,
+          endLine: (k + 1 < markers.length) ? markers[k + 1].line : lines.length
+        });
+      }
+    }
+    return index;
+  }
+  function markSchemePagesForQuestion(index, qnum) {
+    if (!index || qnum === null || qnum === undefined) return null;
+    var entries = index[String(qnum)];
+    if (!entries || !entries.length) return null;
+    var pageNos = unique(entries.map(function (e) { return e.pdfPage; })).sort(function (a, b) { return a - b; });
+    return { pages: pageNos, entries: entries, uncertain: false };
+  }
+
   return {
     normalizeText: normalizeText,
     parseFilename: parseFilename, componentFromText: componentFromText,
+    isMarkSchemeName: isMarkSchemeName, markSchemeKey: markSchemeKey,
+    matchesQuestionPaper: matchesQuestionPaper,
+    msQuestionAtLine: msQuestionAtLine,
+    indexMarkSchemePages: indexMarkSchemePages,
+    markSchemePagesForQuestion: markSchemePagesForQuestion,
     questionAtLine: questionAtLine, detectQuestions: detectQuestions,
     printedPageFromItems: printedPageFromItems,
     printedPageCandidate: printedPageCandidate, resolvePrintedPages: resolvePrintedPages,

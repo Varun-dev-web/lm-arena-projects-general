@@ -294,4 +294,59 @@ test('analyzeDocument: cropHint line range is emitted for the capture editor', (
   assert.ok(hit.cropHint.endLine >= hit.cropHint.startLine);
 });
 
+
+/* ---------- v3: mark-scheme matching ---------- */
+test('parseFilename: PapaCambridge MS name -> series code + component + docType', () => {
+  const p = A.parseFilename('0625_w21_ms_41.pdf');
+  assert.strictEqual(p.seriesCode, 'w21');
+  assert.strictEqual(p.year, 2021);
+  assert.strictEqual(p.session, 'October/November');
+  assert.strictEqual(p.component, '41');
+  assert.strictEqual(p.docType, 'ms');
+  assert.strictEqual(A.isMarkSchemeName('0625_w21_ms_41.pdf'), true);
+  assert.strictEqual(A.isMarkSchemeName('0625_w21_qp_41.pdf'), false);
+});
+test('matchesQuestionPaper: year + session + component must ALL match', () => {
+  const qp = A.parseFilename('0625_w25_qp_41.pdf');
+  assert.strictEqual(A.matchesQuestionPaper(qp, A.parseFilename('0625_w25_ms_41.pdf')), true);
+  assert.strictEqual(A.matchesQuestionPaper(qp, A.parseFilename('0625_w24_ms_41.pdf')), false);
+  assert.strictEqual(A.matchesQuestionPaper(qp, A.parseFilename('0625_s25_ms_41.pdf')), false);
+  assert.strictEqual(A.matchesQuestionPaper(qp, A.parseFilename('0625_w25_ms_42.pdf')), false);
+  assert.strictEqual(A.matchesQuestionPaper(qp, A.parseFilename('0625_w25_qp_41.pdf')), false);
+  assert.strictEqual(A.markSchemeKey(qp), '0625|w25|41');
+});
+test('msQuestionAtLine: mark-scheme row markers, not marks or figure labels', () => {
+  assert.strictEqual(A.msQuestionAtLine('2 (a) north-seeking pole'), 2);
+  assert.strictEqual(A.msQuestionAtLine('Question 5'), 5);
+  assert.strictEqual(A.msQuestionAtLine('3'), 3);
+  assert.strictEqual(A.msQuestionAtLine('Fig. 2'), null);
+  assert.strictEqual(A.msQuestionAtLine('20 cm'), null);
+});
+test('indexMarkSchemePages: finds the exact PDF page for each question', () => {
+  const mk = (n, lines) => ({
+    pdfPage: n, lines: lines, pageWidth: 595,
+    lineMeta: lines.map(() => ({ x: 50 }))
+  });
+  const pages = [
+    mk(1, ['SYNTHETIC MARK SCHEME', 'Question  Answer  Marks',
+      '1 (a) 20 m 1', '2 (a) north-seeking pole 1', '2 (b) field lines 1', '1']),
+    mk(2, ['SYNTHETIC MARK SCHEME', 'Question  Answer  Marks',
+      '3 (a) like poles repel 1', '4 (a) transformer voltage 1', '2'])
+  ];
+  const idx = A.indexMarkSchemePages(pages);
+  assert.deepStrictEqual(A.markSchemePagesForQuestion(idx, 2).pages, [1]);
+  assert.deepStrictEqual(A.markSchemePagesForQuestion(idx, 4).pages, [2]);
+  assert.strictEqual(A.markSchemePagesForQuestion(idx, 9), null);
+  assert.ok(A.markSchemePagesForQuestion(idx, 2).entries[0].endLine >
+            A.markSchemePagesForQuestion(idx, 2).entries[0].startLine);
+});
+test('indexMarkSchemePages: centred numbers are not question markers', () => {
+  const pages = [{
+    pdfPage: 1, lines: ['SYNTHETIC MARK SCHEME', '7', '2 (a) compass 1'], pageWidth: 595,
+    lineMeta: [{ x: 50 }, { x: 290 }, { x: 50 }]
+  }];
+  const idx = A.indexMarkSchemePages(pages);
+  assert.deepStrictEqual(Object.keys(idx), ['2']);
+});
+
 console.log('\n' + passed + ' assertions groups passed.');

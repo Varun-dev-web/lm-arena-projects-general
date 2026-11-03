@@ -93,6 +93,9 @@ def run_suite(label, cmd, port):
         names = [f["name"] for f in scan["files"]]
         check(label + ": scan finds all PDFs", "0625_w25_qp_41.pdf" in names and len(names) >= 5, names)
         check(label + ": scan excludes non-PDFs", all(n.lower().endswith(".pdf") for n in names))
+        check(label + ": scan finds synthetic MS fixtures for the second folder bar",
+              "0625_w25_ms_41.pdf" in names and "0625_w24_ms_42.pdf" in names and
+              "0625_w21_ms_43.pdf" in names, names)
 
         pdf_url = base + "/api/pdf?dir=" + urllib.parse.quote(FIXTURES) + "&file=0625_w25_qp_41.pdf"
         code, hdr, body = get(pdf_url)
@@ -104,6 +107,10 @@ def run_suite(label, cmd, port):
 
         code, hdr, body = get(base + "/index.html")
         check(label + ": UI served", code == 200 and b"QP Page Finder" in body)
+        check(label + ": UI has two separate QP/MS folder bars and two approve buttons",
+              b'id="folderPath"' in body and b'id="msFolderPath"' in body and
+              b'id="msFolderPicker"' in body and b'id="btnApproveMsDownload"' in body and
+              b'id="previewSource"' in body and b'id="btnPrint"' in body)
         csp = hdr.get("Content-Security-Policy", "")
         check(label + ": CSP forbids external connections", "connect-src 'self'" in csp and
               "default-src 'self'" in csp, csp[:120])
@@ -119,6 +126,17 @@ def run_suite(label, cmd, port):
         check(label + ": bundled jsPDF served locally", code == 200 and len(body) > 200000 and b"jsPDF" in body[:600])
         code, hdr, body = get(base + "/vendor/LICENSES/LICENSE-jspdf.txt")
         check(label + ": bundled jsPDF licence served locally", code == 200 and b"MIT" in body[:1200])
+
+        code, hdr, body = get(base + "/analyze.js")
+        check(label + ": v3 MS analysis engine served",
+              code == 200 and b"indexMarkSchemePages" in body and b"matchesQuestionPaper" in body)
+        code, hdr, body = get(base + "/app.js")
+        check(label + ": v3 dual-build app served",
+              code == 200 and b"loadMarkSchemes" in body and
+              b"MS-Magnetism-A4.pdf" in body and b"QP-Magnetism-A4.pdf" in body and
+              b"makeA4Pdf" in body)
+        code, hdr, body = get(base + "/style.css")
+        check(label + ": v3 dual-folder styling served", code == 200 and b"folder-divider" in body)
 
         bad = base + "/api/pdf?dir=" + urllib.parse.quote(FIXTURES) + "&file=../../README.md"
         c, _ = error_body(bad)
@@ -139,6 +157,9 @@ def run_suite(label, cmd, port):
 
 def main():
     before = hashes()
+    check("synthetic MS fixtures exist (no real Cambridge MS PDFs are used)",
+          "0625_w25_ms_41.pdf" in before and "0625_w24_ms_42.pdf" in before and
+          "0625_w21_ms_43.pdf" in before, sorted(before))
     p1, p2 = free_port(), free_port()
     py = sys.executable
     run_suite("server.py", [py, os.path.join(ROOT, "server.py")], p1)

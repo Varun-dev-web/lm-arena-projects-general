@@ -136,6 +136,63 @@ def fixture_encrypted(path):
         return False
 
 
+def fixture_ms_a(path):
+    """SYNTHETIC mark scheme matching 0625_w25_qp_41.pdf (Q1-Q3 on page 1,
+    Q4-Q6 on page 2). Every string is invented test data, not exam content."""
+    c = canvas.Canvas(path, pagesize=A4)
+    c.setTitle("Synthetic fixture 0625_w25_ms_41")
+    draw_page(c, "0625/41/O/N/25  MARK SCHEME", [
+        "SYNTHETIC MARK SCHEME - NOT A REAL CAMBRIDGE DOCUMENT",
+        "Question   Answer   Marks",
+        "1 (a)  distance = 20 m   1",
+        "1 (b)  constant speed   1",
+        "2 (a)  north-seeking pole points away   1",
+        "2 (b)  field lines leave the north pole   1",
+        "2 (c)  soft iron is a magnetic material   1",
+        "3 (a)  force acts downwards   1",
+    ], 2)
+    draw_page(c, "0625/41/O/N/25  MARK SCHEME", [
+        "SYNTHETIC MARK SCHEME - NOT A REAL CAMBRIDGE DOCUMENT",
+        "Question   Answer   Marks",
+        "4 (a)  output voltage is 12 V   1",
+        "5 (a)  a permanent magnet keeps its magnetism   1",
+        "5 (b)  an induced magnet is magnetised near a permanent magnet   1",
+        "6 (a)  induced e.m.f. opposes the change   1",
+    ], 3)
+    c.save()
+
+
+def fixture_ms_b(path):
+    """SYNTHETIC mark scheme matching 0625_w24_qp_42.pdf."""
+    c = canvas.Canvas(path, pagesize=A4)
+    c.setTitle("Synthetic fixture 0625_w24_ms_42")
+    draw_page(c, "0625/42/O/N/24  MARK SCHEME", [
+        "SYNTHETIC MARK SCHEME - NOT A REAL CAMBRIDGE DOCUMENT",
+        "Question   Answer   Marks",
+        "1 (a)  like poles repel   1",
+        "2 (a)  induced current in the coil   1",
+    ], 2)
+    draw_page(c, "0625/42/O/N/24  MARK SCHEME", [
+        "SYNTHETIC MARK SCHEME - NOT A REAL CAMBRIDGE DOCUMENT",
+        "Question   Answer   Marks",
+        "3 (a)  compass follows the magnetic field lines   1",
+        "3 (b)  field pattern from north to south   1",
+    ], 3)
+    c.save()
+
+
+def fixture_ms_unmatched(path):
+    """A synthetic MS whose year/session/component has no matching QP fixture."""
+    c = canvas.Canvas(path, pagesize=A4)
+    c.setTitle("Synthetic fixture 0625_w21_ms_43 (unmatched)")
+    draw_page(c, "0625/43/O/N/21  MARK SCHEME", [
+        "SYNTHETIC MARK SCHEME - NOT A REAL CAMBRIDGE DOCUMENT",
+        "Question   Answer   Marks",
+        "1 (a)  synthetic answer text   1",
+    ], 2)
+    c.save()
+
+
 def fixture_nonpaper(path):
     """A PDF with no magnetism content at all."""
     c = canvas.Canvas(path, pagesize=A4)
@@ -152,6 +209,9 @@ def main():
     fixture_scanned(os.path.join(out, "scanned_magnetism_notes.pdf"))
     encrypted = fixture_encrypted(os.path.join(out, "locked_synthetic.pdf"))
     fixture_nonpaper(os.path.join(out, "temperature_notes.pdf"))
+    fixture_ms_a(os.path.join(out, "0625_w25_ms_41.pdf"))
+    fixture_ms_b(os.path.join(out, "0625_w24_ms_42.pdf"))
+    fixture_ms_unmatched(os.path.join(out, "0625_w21_ms_43.pdf"))
     print("Fixtures written to %s (encrypted fixture: %s)" % (out, encrypted))
     for f in sorted(os.listdir(out)):
         print("  %s  %d bytes" % (f, os.path.getsize(os.path.join(out, f))))

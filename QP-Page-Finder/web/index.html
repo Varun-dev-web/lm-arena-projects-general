@@ -12,9 +12,9 @@
   <div class="brand">
     <span class="logo" aria-hidden="true">⌕</span>
     <div>
-      <h1>QP Page Finder <span class="ver">v2</span></h1>
-      <p>Find pages about <strong>basic magnetism</strong> in your Cambridge IGCSE Physics 0625 question papers,
-        then build your own A4 PDF from the pages you approve.</p>
+      <h1>QP Page Finder <span class="ver">v3</span></h1>
+      <p>Find pages about <strong>basic magnetism</strong> in your Cambridge IGCSE Physics 0625 question papers
+        and their marking schemes, then build two separate A4 PDFs from the pages you approve.</p>
     </div>
   </div>
   <div class="badges">
@@ -32,9 +32,11 @@
 
 <main>
   <section class="card" id="folderCard">
-    <h2><span class="step">1</span> Choose the folder with your QP PDFs</h2>
+    <h2><span class="step">1</span> Two separate folders: question papers &amp; mark schemes</h2>
     <p class="hint">Put the <code>QP-Page-Finder</code> folder inside the same folder as the PDFs you
-      downloaded. The app then scans that folder automatically. You can also pick any other folder.</p>
+      downloaded. Both bars are independent — use one folder for QPs and another for MS PDFs. PapaCambridge
+      MS names such as <code>0625_w21_ms_41.pdf</code> are matched to <code>0625_w21_qp_41.pdf</code> by
+      syllabus, year, session and component.</p>
 
     <div class="row">
       <label for="folderPath" class="lbl">Folder path</label>
@@ -62,6 +64,35 @@
       </div>
       <div id="fileList" class="filelist" role="list"></div>
     </div>
+
+    <div class="folder-divider"><span>MARK SCHEMES — a separate folder / file bar</span></div>
+
+    <div class="row">
+      <label for="msFolderPath" class="lbl">MS folder path</label>
+      <input type="text" id="msFolderPath" spellcheck="false" placeholder="C:\IGCSE\Mark Schemes">
+      <button id="btnMsRefresh" class="btn primary">List MS PDFs</button>
+    </div>
+    <div class="row wrap">
+      <button id="btnMsParent" class="btn ghost">Use parent folder (default)</button>
+      <button id="btnMsAppFolder" class="btn ghost">Use this app folder</button>
+      <label class="btn ghost filebtn">
+        Choose a different MS folder…
+        <input type="file" id="msFolderPicker" webkitdirectory directory multiple hidden>
+      </label>
+      <label class="check"><input type="checkbox" id="msRecursive"> Include subfolders</label>
+    </div>
+    <p class="hint small" id="msFolderStatus">Looking for MS PDFs…</p>
+
+    <div class="filelist-wrap">
+      <div class="filelist-head">
+        <span id="msFileCount">0 PDFs</span>
+        <span class="linkbtns">
+          <button id="btnMsAll" class="link">Select all</button>
+          <button id="btnMsNone" class="link">Select none</button>
+        </span>
+      </div>
+      <div id="msFileList" class="filelist" role="list"></div>
+    </div>
   </section>
 
   <section class="card" id="scanCard">
@@ -80,7 +111,9 @@
     <p class="hint small">Topics: magnetic materials, poles, attraction &amp; repulsion, induced &amp; permanent
       magnetism, magnetic fields / field patterns, compass behaviour. Questions <em>only</em> about motors,
       transformers, induction or other electromagnetism are filtered out. v2 matches phrases split across
-      lines and identifies printed page numbers by their <strong>position</strong> in the footer.</p>
+      lines and identifies printed page numbers by their <strong>position</strong> in the footer. Mark schemes
+      from the second folder are indexed by question number at the same time, so each ✓ Relevant question
+      gets its exact MS page too.</p>
   </section>
 
   <section class="card" id="resultsCard">
@@ -106,8 +139,9 @@
             <th>PDF filename</th>
             <th>Component</th>
             <th>Question</th>
-            <th>PDF page(s)</th>
+            <th>QP PDF page(s)</th>
             <th>Printed page</th>
+            <th>MS PDF page(s)</th>
             <th>Matched topics (keywords only)</th>
             <th>Status / review</th>
             <th>Open / capture</th>
@@ -121,32 +155,37 @@
       only from a bottom-centred footer number in the PDF and is shown separately from the physical
       <strong>PDF page</strong> column, so a question number can no longer be mistaken for a printed page.
       Click <em>Open at page</em> to view the exact page, or <em>Capture / align</em> to select a region for
-      your A4 PDF. Your original PDFs are only ever opened read-only.</p>
+      your A4 PDF. <strong>MS PDF page(s)</strong> is the exact physical page of the matched mark scheme
+      where that same question number is marked; it is found from the MS filename and its own page index.
+      Your original PDFs are only ever opened read-only.</p>
   </section>
 
   <section class="card" id="compileCard">
-    <h2><span class="step">4</span> Build your A4 PDF <span class="badge ok">NEW</span></h2>
-    <p class="hint">Mark a question <strong>✓ Relevant</strong> and the app automatically renders that PDF page
-      as a capture. You then <strong>manually align</strong> the crop rectangle (drag it, drag a corner, or
-      type percentages). When every question that needs checking has been checked and every confirmed
-      question has a capture, build the A4 PDF, review it in the preview, and only then approve the download.</p>
+    <h2><span class="step">4</span> Build TWO separate A4 PDFs <span class="badge ok">NEW</span></h2>
+    <p class="hint">Mark a question <strong>✓ Relevant</strong> and the app renders its QP page and the exact
+      matched MS page as captures. For <strong>each</strong> of them you get the same <strong>manual
+      alignment</strong> editor (drag the box, drag a corner, or type percentages). When every confirmed
+      question has both captures, build, preview, print and approve the downloads. The QP pages and MS
+      pages are compiled into <strong>two separate PDFs</strong>, in the same order as your selection —
+      never one combined file.</p>
 
     <div class="compile-grid">
       <div class="cbox"><span class="cnum" id="cntConfirmed">0</span><span>confirmed questions</span></div>
-      <div class="cbox"><span class="cnum" id="cntCaptured">0</span><span>with captures</span></div>
+      <div class="cbox"><span class="cnum" id="cntCaptured">0</span><span>QP + MS captures</span></div>
       <div class="cbox"><span class="cnum" id="cntPending">0</span><span>still to check</span></div>
       <div class="cbox"><span class="cnum" id="cntSheets">0</span><span>A4 sheets ready</span></div>
     </div>
     <p id="compileStatus" class="status">Scan some PDFs and confirm a question to begin.</p>
 
     <div class="row wrap">
-      <button id="btnBuild" class="btn primary big" disabled>Build A4 PDF (preview)</button>
+      <button id="btnBuild" class="btn primary big" disabled>Build A4 PDFs (preview)</button>
       <button id="btnMarkRest" class="btn ghost" disabled>Mark remaining unchecked as "not relevant"</button>
-      <button id="btnDownloadApproved" class="btn ghost" disabled hidden>Download approved A4 PDF again</button>
+      <button id="btnDownloadApproved" class="btn ghost" disabled hidden>Download approved QP PDF again</button>
+      <button id="btnDownloadMsApproved" class="btn ghost" disabled hidden>Download approved MS PDF again</button>
       <label class="check"><input type="checkbox" id="includeFooter"> Add a small page reference footer to each sheet</label>
     </div>
-    <p class="hint small">Nothing downloads automatically. The A4 PDF is a <strong>new file</strong> created
-      locally from the page regions you aligned; your original question-paper PDFs are never modified.</p>
+    <p class="hint small">Nothing downloads automatically. Both A4 PDFs are <strong>new files</strong> created
+      locally from the page regions you aligned; your original QP and MS PDFs are never modified.</p>
   </section>
 
   <section class="card notes">
@@ -159,7 +198,8 @@
           <li>Report filename, component, question number, physical PDF page/range and a position-verified printed page</li>
           <li>Flag uncertain matches and let you mark them relevant / not relevant</li>
           <li>Open the original PDF at the matching page in a built-in viewer</li>
-          <li><strong>NEW:</strong> auto-render a capture for each confirmed question, let you align the crop, compile an A4 PDF, preview it, and download it <em>after your approval</em></li>
+          <li><strong>NEW:</strong> auto-render a QP capture and a matching MS capture for each confirmed question, let you align both crops, compile <em>two separate</em> A4 PDFs, preview / print them, and download each <em>after your approval</em></li>
+          <li>Read PapaCambridge MS filenames and report the exact MS PDF page for each selected question number</li>
         </ul>
       </div>
       <div>
@@ -168,8 +208,8 @@
           <li>Upload, transmit or send your PDFs, their text or your captures anywhere</li>
           <li>Bypass PDF passwords, encryption or access restrictions</li>
           <li>Modify, overwrite, split or combine your <em>original</em> PDFs (the A4 file is a brand-new PDF you create)</li>
-          <li>Show question text in the results table, or generate answers / mark schemes</li>
-          <li>Download anything without your explicit approval in the preview</li>
+          <li>Show question text in the results table, or generate answers / mark-scheme text (it only handles <em>your own</em> local MS PDFs)</li>
+          <li>Merge QP and MS pages into one PDF, or download anything without your explicit approval in the preview</li>
         </ul>
       </div>
     </div>
@@ -195,12 +235,19 @@
     </div>
     <div id="approveBar" class="approve-bar" hidden>
       <div>
-        <strong>Preview of your A4 PDF</strong>
-        <div class="hint small" id="approveSub">Check every sheet. It downloads only after you approve.</div>
+        <strong>Preview of your A4 PDFs</strong>
+        <div class="hint small" id="approveSub">Check every sheet. Each file downloads only after you approve it.</div>
       </div>
       <span class="spacer"></span>
+      <label class="lbl" for="previewSource">Preview</label>
+      <select id="previewSource">
+        <option value="qp">Question paper PDF</option>
+        <option value="ms">Mark scheme PDF</option>
+      </select>
+      <button id="btnPrint" class="btn ghost">Print / open for printing</button>
       <button id="btnBackToEdit" class="btn ghost">← Back to edit</button>
-      <button id="btnApproveDownload" class="btn primary">✓ Approve &amp; download A4 PDF</button>
+      <button id="btnApproveMsDownload" class="btn primary">✓ Approve &amp; download MS PDF</button>
+      <button id="btnApproveDownload" class="btn primary">✓ Approve &amp; download QP PDF</button>
     </div>
     <div id="viewerCanvasWrap" class="canvas-wrap">
       <canvas id="viewerCanvas"></canvas>
@@ -215,6 +262,7 @@
     <div class="modal-head">
       <div>
         <strong id="cropTitle">Align the capture</strong>
+        <span id="cropSourceBadge" class="badge ok">QP</span>
         <div class="hint small" id="cropSub">Drag the box, drag a corner handle, or type percentages.</div>
       </div>
       <button id="btnCancelCropTop" class="btn ghost" aria-label="Close">✕</button>
@@ -259,7 +307,7 @@
 </div>
 
 <footer>
-  <p><strong>QP Page Finder v2</strong> · runs entirely on this machine · pdf.js, Tesseract.js, jsPDF and all
+  <p><strong>QP Page Finder v3</strong> · runs entirely on this machine · pdf.js, Tesseract.js, jsPDF and all
     OCR/font data are bundled locally · see <code>THIRD-PARTY-NOTICES.md</code>.</p>
 </footer>
 

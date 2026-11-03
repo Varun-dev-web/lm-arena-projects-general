@@ -26,16 +26,20 @@
   var state = {
     serverMode: location.protocol !== 'file:',
     config: null,
-    entries: [],                 // [{name, rel, size, selected, getBytes(), pdfUrl}]
+    entries: [],                 // QP: [{name, rel, size, selected, getBytes(), pdfUrl}]
+    msEntries: [],               // MS: same shape, INDEPENDENT folder/file bar
     hits: [],                    // all hits, including 'excluded' ones (filtered in renderResults)
     errors: [],
-    docs: {},                    // filename -> {pdf, bytes, pageMeta}
+    docs: {},                    // QP filename -> {pdf, bytes, pageMeta}
+    msDocs: {},                  // MS filename -> {pdf, pageMeta, parsed, index, pages}
     reviews: {},                 // hit.id -> 'relevant' | 'notrelevant'
-    captures: {},                // hit.id -> {pageNo -> {dataUrl,w,h}}
-    cropRects: {},               // hit.id -> {pageNo -> rect}
-    crop: null,                  // active alignment editor
-    compiled: null,              // {blob, pageCount, sheetCount, approved}
-    compiledPdf: null,
+    captures: {},                // QP hit.id -> {pageNo -> {dataUrl,w,h}}
+    msCaptures: {},              // MS hit.id -> {pageNo -> {dataUrl,w,h}}
+    cropRects: {},               // QP hit.id -> {pageNo -> rect}
+    msCropRects: {},             // MS hit.id -> {pageNo -> rect}
+    crop: null,                  // active alignment editor {hit, source:'qp'|'ms', ...}
+    compiled: null,              // {qp: {...}, ms: {...}|null} - TWO separate PDFs
+    previewSource: 'qp',         // 'qp' | 'ms' - which compiled PDF is in the viewer
     viewerMode: 'source',        // 'source' | 'compiled'
     viewer: { filename: null, pdf: null, page: 1, numPages: 1 },
     worker: null, workerReady: false, workerError: null,
@@ -89,7 +93,7 @@
     var dir = data.dir;
     state.entries = (data.files || []).map(function (f) {
       return {
-        name: f.name, rel: f.rel, size: f.size, selected: true,
+        name: f.name, rel: f.rel, size: f.size, selected: !A.isMarkSchemeName(f.name),
         getBytes: function () {
           return fetch('/api/pdf?dir=' + encodeURIComponent(dir) + '&file=' + encodeURIComponent(f.rel))
             .then(function (r) {
@@ -130,7 +134,8 @@
     var files = Array.prototype.slice.call(fileList || []).filter(function (f) { return /\.pdf$/i.test(f.name); });
     state.entries = files.map(function (f) {
       return {
-        name: f.name, rel: f.webkitRelativePath || f.name, size: f.size, selected: true,
+        name: f.name, rel: f.webkitRelativePath || f.name, size: f.size,
+        selected: !A.isMarkSchemeName(f.name),
         getBytes: function () { return f.arrayBuffer(); },
         pdfUrl: null, blobUrl: null, file: f
       };
@@ -140,6 +145,90 @@
     renderFileList();
     $('btnScan').disabled = state.entries.length === 0;
   }
+  /* ---- v3: the SECOND, independent folder bar for mark schemes ---- */
+  function renderMsFileList() {
+    var box = $('msFileList');
+    box.innerHTML = '';
+    $('msFileCount').textContent = state.msEntries.length + ' PDF' + (state.msEntries.length === 1 ? '' : 's');
+    if (!state.msEntries.length) {
+      box.appendChild(el('div', 'fileitem muted', 'No PDF files found in this folder. Put your downloaded MS PDFs here, or choose a different folder.'));
+      return;
+    }
+    state.msEntries.forEach(function (entry, idx) {
+      var row = el('label', 'fileitem');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = entry.selected; cb.id = 'msf' + idx;
+      cb.addEventListener('change', function () { entry.selected = cb.checked; });
+      row.appendChild(cb);
+      row.appendChild(el('span', 'fname', entry.name));
+      // Show what the PapaCambridge-style name was decoded into.
+      var p = A.parseFilename(entry.name);
+      var tag = p.seriesCode && p.component
+        ? ('0625 · ' + (p.session || p.seriesCode) + ' ' + p.year + ' · paper ' + p.component +
+           (p.docType === 'ms' ? ' · MS' : ' · ' + p.docType.toUpperCase()))
+        : (p.docType === 'ms' ? 'MS · year/session/component not in filename' : 'not an MS filename');
+      var lab = el('span', 'fsize', tag);
+      lab.title = entry.name;
+      row.appendChild(lab);
+      row.appendChild(el('span', 'fsize', fmtSize(entry.size)));
+      box.appendChild(row);
+    });
+  }
+  function setMsEntriesFromServer(data) {
+    var dir = data.dir;
+    state.msEntries = (data.files || []).map(function (f) {
+      return {
+        name: f.name, rel: f.rel, size: f.size, selected: A.isMarkSchemeName(f.name),
+        getBytes: function () {
+          return fetch('/api/pdf?dir=' + encodeURIComponent(dir) + '&file=' + encodeURIComponent(f.rel))
+            .then(function (r) {
+              if (!r.ok) throw new Error('HTTP ' + r.status + ' while reading ' + f.name);
+              return r.arrayBuffer();
+            });
+        },
+        pdfUrl: '/api/pdf?dir=' + encodeURIComponent(dir) + '&file=' + encodeURIComponent(f.rel)
+      };
+    });
+    $('msFolderStatus').textContent = 'MS folder: ' + dir + (data.truncated ? ' (list truncated)' : '');
+    $('msFolderPath').value = dir;
+    renderMsFileList();
+  }
+  function refreshMsList() {
+    if (!state.serverMode) {
+      $('msFolderStatus').textContent = 'Opened as a local file - use "Choose a different MS folder" below.';
+      return;
+    }
+    var dir = $('msFolderPath').value.trim();
+    $('msFolderStatus').textContent = 'Listing MS PDFs in ' + dir + ' …';
+    fetch('/api/scan?dir=' + encodeURIComponent(dir) + '&recursive=' + ($('msRecursive').checked ? '1' : '0'))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          $('msFolderStatus').textContent = data.error;
+          state.msEntries = []; renderMsFileList(); return;
+        }
+        setMsEntriesFromServer(data);
+      })
+      .catch(function (e) {
+        $('msFolderStatus').textContent = 'Could not list MS folder: ' + e.message;
+        state.msEntries = []; renderMsFileList();
+      });
+  }
+  function useMsFolderPicker(fileList) {
+    var files = Array.prototype.slice.call(fileList || []).filter(function (f) { return /\.pdf$/i.test(f.name); });
+    state.msEntries = files.map(function (f) {
+      return {
+        name: f.name, rel: f.webkitRelativePath || f.name, size: f.size,
+        selected: A.isMarkSchemeName(f.name),
+        getBytes: function () { return f.arrayBuffer(); },
+        pdfUrl: null, blobUrl: null, file: f
+      };
+    });
+    $('msFolderStatus').textContent = 'Using MS folder chosen in the browser (' + state.msEntries.length +
+      ' PDFs). These files are read directly in your browser; nothing is uploaded.';
+    renderMsFileList();
+  }
+
   function findEntry(name) {
     for (var i = 0; i < state.entries.length; i++) if (state.entries[i].name === name) return state.entries[i];
     return null;
@@ -303,18 +392,99 @@
     return { pages: pages, numPages: pdf.numPages };
   }
 
+  /* ---- v3: index each MS PDF by year/session/component + question number ---- */
+  async function loadMarkSchemes() {
+    state.msDocs = {};
+    var chosen = state.msEntries.filter(function (e) {
+      return e.selected && A.isMarkSchemeName(e.name);
+    });
+    for (var i = 0; i < chosen.length; i++) {
+      var entry = chosen[i];
+      setStatus('Indexing mark scheme ' + entry.name + ' … (' + (i + 1) + '/' + chosen.length + ')');
+      try {
+        var buf = await entry.getBytes();
+        var bytes = new Uint8Array(buf);
+        var pdf = await pdfjsLib.getDocument({
+          data: bytes,
+          standardFontDataUrl: './vendor/standard_fonts/',
+          disableRange: true, disableStream: true,
+          isEvalSupported: false, useWorkerFetch: false
+        }).promise;
+        var pages = [], pageMeta = {};
+        for (var n = 1; n <= pdf.numPages; n++) {
+          var page = await pdf.getPage(n);
+          var vp1 = page.getViewport({ scale: 1 });
+          var tc = await page.getTextContent();
+          var ext = itemsToLines(tc, vp1.height);
+          pages.push({
+            pdfPage: n, lines: ext.lines, lineMeta: ext.lineMeta,
+            pageWidth: vp1.width, pageHeight: vp1.height
+          });
+          pageMeta[n] = { lineMeta: ext.lineMeta, pageWidth: vp1.width, pageHeight: vp1.height };
+        }
+        state.msDocs[entry.name] = {
+          pdf: pdf, pageMeta: pageMeta, pageCount: pdf.numPages,
+          parsed: A.parseFilename(entry.name),
+          index: A.indexMarkSchemePages(pages)
+        };
+      } catch (e) {
+        state.errors.push(entry.name + ' (MS): ' + describeSecurityError(e) + ' - no MS pages for its questions.');
+      }
+    }
+  }
+  function msDocForHit(h) {
+    var qp = { syllabus: h.syllabus, seriesCode: h.seriesCode, component: h.component };
+    var names = Object.keys(state.msDocs);
+    for (var i = 0; i < names.length; i++) {
+      var d = state.msDocs[names[i]];
+      if (A.matchesQuestionPaper(qp, d.parsed)) return { name: names[i], doc: d };
+    }
+    return null;
+  }
+  function attachMarkSchemes() {
+    state.hits.forEach(function (h) {
+      var m = msDocForHit(h);
+      h.msAvailable = !!m;
+      h.msFilename = m ? m.name : null;
+      h.msPages = [1];
+      h.msCropHint = null;
+      h.msUncertain = true;
+      h.msLabel = '—';
+      if (!m) { h.msStatus = 'No matching MS PDF in the MS folder'; return; }
+      var found = A.markSchemePagesForQuestion(m.doc.index, h.question);
+      if (!found || !found.pages.length) {
+        h.msStatus = 'Q' + h.questionLabel + ' not found in MS - align its page manually';
+        h.msLabel = 'page ? (align)';
+        return;
+      }
+      h.msPages = found.pages.slice();
+      h.msLabel = h.msPages.length > 1
+        ? h.msPages[0] + '–' + h.msPages[h.msPages.length - 1]
+        : String(h.msPages[0]);
+      h.msUncertain = false;
+      h.msStatus = '';
+      var e = found.entries[0];
+      h.msCropHint = { startLine: e.startLine, endLine: e.endLine };
+    });
+  }
+
   async function runScan() {
     if (state.scanning) return;
     var selected = state.entries.filter(function (e) { return e.selected; });
     if (!selected.length) { setStatus('Select at least one PDF first.'); return; }
     state.abort = false; state.scanning = true;
-    state.hits = []; state.errors = []; state.docs = {};
-    state.captures = {}; state.cropRects = {};
+    state.hits = []; state.errors = []; state.docs = {}; state.msDocs = {};
+    state.captures = {}; state.msCaptures = {};
+    state.cropRects = {}; state.msCropRects = {};
     invalidateCompiled();
     $('btnScan').disabled = true; $('btnStop').disabled = false;
     setProgress(0);
     var useOcr = $('useOcr').checked;
     var done = 0;
+    // The MS folder is read independently; only its pages are used for MS captures.
+    try { await loadMarkSchemes(); } catch (e) {
+      state.errors.push('MS folder: ' + e.message + ' - question-paper scan continues.');
+    }
     for (var i = 0; i < selected.length; i++) {
       if (state.abort) break;
       var entry = selected[i];
@@ -324,7 +494,7 @@
           setProgress((done / selected.length) + (1 / selected.length) * (pageNo / Math.max(1, total)) * 0.95);
         });
         var analysis = A.analyzeDocument(res.pages, { filename: entry.name });
-        analysis.hits.forEach(function (h) { state.hits.push(h); });
+        analysis.hits.forEach(function (h) { state.hits.push(h); attachMarkSchemes(); });
         var noText = res.pages.filter(function (p) { return p.lines.length === 0; }).length;
         if (noText) state.errors.push(entry.name + ': ' + noText + ' page(s) had no extractable text' +
           (useOcr ? ' and OCR did not produce text' : ' (OCR was off)') + ' - review those pages manually.');
@@ -339,7 +509,8 @@
     renderResults();
     var msg = (state.abort ? 'Stopped. ' : 'Finished. ') +
       state.hits.filter(function (h) { return h.bucket !== 'excluded'; }).length +
-      ' candidate match(es) across ' + done + ' PDF(s).';
+      ' candidate match(es) across ' + done + ' QP PDF(s) and ' +
+      Object.keys(state.msDocs).length + ' indexed MS PDF(s).';
     if (state.errors.length) msg += ' ' + state.errors.length + ' file/page warning(s) - see below.';
     setStatus(msg);
     showScanErrors(state.errors);
@@ -361,7 +532,14 @@
     var done = h.pages.filter(function (p) { return !!c[p]; }).length;
     return { done: done, total: h.pages.length, all: done === h.pages.length && done > 0 };
   }
-  function captureComplete(h) { return captureState(h).all; }
+  function msCaptureState(h) {
+    var c = state.msCaptures[h.id] || {};
+    var pages = h.msAvailable ? (h.msPages || [1]) : [];
+    var done = pages.filter(function (p) { return !!c[p]; }).length;
+    return { done: done, total: pages.length, all: done === pages.length && done > 0 };
+  }
+  function msCaptureComplete(h) { return !h.msAvailable || msCaptureState(h).all; }
+  function captureComplete(h) { return captureState(h).all && msCaptureComplete(h); }
   function liveHits() { return state.hits.filter(function (h) { return h.bucket !== 'excluded'; }); }
   function pendingHits() {
     return liveHits().filter(function (h) { return h.uncertain && (state.reviews[h.id] || 'unreviewed') === 'unreviewed'; });
@@ -388,11 +566,18 @@
       cell.appendChild(box);
     }
     if (hit.bucket !== 'excluded') {
-      var cap = captureState(hit);
+      var cap = captureState(hit), msCap = msCaptureState(hit);
       var capTag = el('div', 'capture-line');
       if (state.reviews[hit.id] === 'relevant') {
         capTag.appendChild(el('span', 'tag ' + (cap.all ? 'cap-ok' : 'cap-missing'),
-          cap.all ? '✓ ' + cap.done + ' capture' + (cap.done > 1 ? 's' : '') : '⚠ ' + cap.done + '/' + cap.total + ' captured'));
+          cap.all ? '✓ QP ' + cap.done + '/' + cap.total + ' captured' : '⚠ QP ' + cap.done + '/' + cap.total + ' captured'));
+        if (hit.msAvailable) {
+          capTag.appendChild(el('span', 'tag ' + (msCap.all ? 'cap-ok' : 'cap-missing'),
+            msCap.all ? '✓ MS ' + msCap.done + '/' + msCap.total + ' captured'
+                      : '⚠ MS ' + msCap.done + '/' + msCap.total + ' captured'));
+        } else {
+          capTag.appendChild(el('span', 'tag', 'No matching MS PDF'));
+        }
       } else {
         capTag.appendChild(el('span', 'tag', cap.done ? cap.done + ' capture(s) (not confirmed)' : 'No capture'));
       }
@@ -415,7 +600,7 @@
     invalidateCompiled();
     renderResults();
     // Confirmed -> render its capture automatically, then let the user align it.
-    if (hit.review === 'relevant') openCropEditor(hit);
+    if (hit.review === 'relevant') openCropEditor(hit, 'qp');
   }
   function actionsCell(hit) {
     var cell = el('td');
@@ -438,9 +623,31 @@
     wrap.appendChild(link);
 
     if (hit.bucket !== 'excluded') {
-      var capBtn = el('button', null, 'Capture / align');
-      capBtn.addEventListener('click', function () { openCropEditor(hit); });
+      var capBtn = el('button', null, 'Capture / align QP');
+      capBtn.addEventListener('click', function () { openCropEditor(hit, 'qp'); });
       wrap.appendChild(capBtn);
+      if (hit.msAvailable) {
+        var msBtn = el('button', null, 'Capture / align MS');
+        msBtn.addEventListener('click', function () { openCropEditor(hit, 'ms'); });
+        wrap.appendChild(msBtn);
+        var msOpen = el('a', null, 'Open MS at page ' + (hit.msPages[0] || 1) + ' ↗');
+        msOpen.setAttribute('target', '_blank');
+        msOpen.setAttribute('rel', 'noopener noreferrer');
+        msOpen.href = '#';
+        msOpen.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          var d = state.msDocs[hit.msFilename];
+          if (!d) return;
+          var mentry = null;
+          for (var i = 0; i < state.msEntries.length; i++) {
+            if (state.msEntries[i].name === hit.msFilename) { mentry = state.msEntries[i]; break; }
+          }
+          ensureBlobUrl(mentry).then(function (u) {
+            if (u) window.open(u + '#page=' + (hit.msPages[0] || 1), '_blank', 'noopener');
+          });
+        });
+        wrap.appendChild(msOpen);
+      }
     }
     cell.appendChild(wrap);
     return cell;
@@ -476,6 +683,15 @@
       if (hit.printedLabel) printed.title = 'Detected from the bottom-centred footer' +
         (hit.printedPositional ? ' (position verified)' : ' (text fallback)');
       tr.appendChild(printed);
+      var msCell = el('td', hit.msAvailable ? 'ms-pages' : 'ms-missing',
+        hit.msAvailable ? hit.msLabel : '—');
+      if (hit.msAvailable) {
+        msCell.title = hit.msFilename + ' · PDF page ' + hit.msLabel +
+          (hit.msStatus ? ' · ' + hit.msStatus : '');
+      } else {
+        msCell.title = 'No MS PDF in the MS folder matches this year / session / component.';
+      }
+      tr.appendChild(msCell);
       var tc = el('td'); tc.appendChild(termsCell(hit)); tr.appendChild(tc);
       tr.appendChild(statusCell(hit));
       tr.appendChild(actionsCell(hit));
@@ -487,7 +703,14 @@
   /* ------------------------------------------------------------------ *
    * Built-in viewer (source PDF, or the compiled A4 preview)
    * ------------------------------------------------------------------ */
-  function activeViewerPdf() { return state.viewerMode === 'compiled' ? state.compiledPdf : state.viewer.pdf; }
+  function compiledPart(src) {
+    return state.compiled ? state.compiled[src || state.previewSource] : null;
+  }
+  function activeViewerPdf() {
+    if (state.viewerMode !== 'compiled') return state.viewer.pdf;
+    var part = compiledPart();
+    return part ? part.pdf : null;
+  }
   async function renderViewerPage() {
     var pdf = activeViewerPdf();
     if (!pdf) return;
@@ -532,19 +755,44 @@
     cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
   }
   function openCompiledPreview() {
-    if (!state.compiledPdf) return;
+    var part = compiledPart(state.previewSource);
+    if (!part || !part.pdf) {
+      state.previewSource = 'qp';
+      part = compiledPart('qp');
+    }
+    if (!part || !part.pdf) return;
     state.viewerMode = 'compiled';
-    state.viewer.pdf = state.compiledPdf;
+    state.viewer.pdf = part.pdf;
     state.viewer.page = 1;
-    state.viewer.numPages = state.compiledPdf.numPages;
+    state.viewer.numPages = part.pdf.numPages;
+    $('previewSource').value = state.previewSource;
+    $('previewSource').disabled = !compiledPart('ms');
+    $('btnApproveMsDownload').disabled = !compiledPart('ms');
     $('approveBar').hidden = false;
-    $('viewerTitle').textContent = 'A4 PDF preview';
-    $('viewerSub').textContent = state.compiled.sheetCount + ' A4 sheet(s) · ' +
-      (state.compiled.blob.size / 1024 / 1024).toFixed(2) + ' MB · not downloaded yet';
-    $('approveSub').textContent = 'Check every sheet with ‹ Previous / Next ›. The download starts only after you approve.';
+    $('viewerTitle').textContent = state.previewSource === 'ms'
+      ? 'A4 MARK SCHEME PDF preview' : 'A4 QUESTION PAPER PDF preview';
+    $('viewerSub').textContent = part.sheetCount + ' A4 sheet(s) · ' +
+      (part.blob.size / 1024 / 1024).toFixed(2) + ' MB · not downloaded yet';
+    $('approveSub').textContent = 'Check every sheet with ‹ Previous / Next ›. QP and MS download as two separate files, only after you approve each.';
     $('viewerNote').textContent = 'Preview only — nothing downloads until you approve.';
     $('viewer').hidden = false;
     renderViewerPage();
+  }
+  function switchPreviewSource(src) {
+    if (!state.compiled || !compiledPart(src)) return;
+    state.previewSource = src;
+    $('previewSource').value = src;
+    openCompiledPreview();
+  }
+  function printPreview() {
+    if (state.viewerMode !== 'compiled') return;
+    var part = compiledPart();
+    if (!part) return;
+    var url = URL.createObjectURL(part.blob);
+    state.objectUrls.push(url);
+    window.open(url, '_blank', 'noopener');
+    $('compileStatus').textContent = 'Opened the ' + (state.previewSource === 'ms' ? 'MS' : 'QP') +
+      ' A4 PDF in a new tab for printing. Nothing was downloaded or uploaded.';
   }
 
   /* ------------------------------------------------------------------ *
@@ -573,12 +821,21 @@
     $('cropHintText').textContent = 'Selected: ' + Math.round((r.r - r.l) * 100) + '% wide × ' +
       Math.round((r.b - r.t) * 100) + '% tall of PDF page ' + state.crop.page + '.';
   }
-  function defaultRect(hit, pageNo) {
-    var saved = state.cropRects[hit.id] && state.cropRects[hit.id][pageNo];
+  function cropStore(source) { return source === 'ms' ? state.msCropRects : state.cropRects; }
+  function cropDoc(hit, source) {
+    return source === 'ms' ? state.msDocs[hit.msFilename] : state.docs[hit.filename];
+  }
+  function cropPages(hit, source) {
+    return source === 'ms' ? (hit.msPages || [1]).slice() : hit.pages.slice();
+  }
+  function defaultRect(hit, source, pageNo, pagesList) {
+    var store = cropStore(source);
+    var saved = store[hit.id] && store[hit.id][pageNo];
     if (saved) return Object.assign({}, saved);
     var full = { l: 0.02, t: 0.02, r: 0.98, b: 0.98 };
-    if (!hit.cropHint || hit.pages.indexOf(pageNo) !== 0) return full;
-    var doc = state.docs[hit.filename];
+    var hint = source === 'ms' ? hit.msCropHint : hit.cropHint;
+    if (!hint || pagesList.indexOf(pageNo) !== 0) return full;
+    var doc = cropDoc(hit, source);
     var pm = doc && doc.pageMeta && doc.pageMeta[pageNo];
     if (!pm || !pm.lineMeta) return full;
     var from = Math.max(0, hit.cropHint.startLine - 1);
@@ -597,14 +854,29 @@
     });
     return (r.r - r.l > 0.25 && r.b - r.t > 0.06) ? r : full;
   }
-  async function openCropEditor(hit) {
+  async function openCropEditor(hit, source) {
     if (state.crop) return;
-    var doc = state.docs[hit.filename];
-    if (!doc || !doc.pdf) { setStatus('Re-scan ' + hit.filename + ' in this tab to enable captures.'); return; }
-    var pagesList = hit.pages.slice();
-    state.crop = { hit: hit, pages: pagesList, page: pagesList[0], rects: {}, images: {}, displayW: 690, drag: null };
-    pagesList.forEach(function (p) { state.crop.rects[p] = defaultRect(hit, p); });
-    $('cropTitle').textContent = 'Align capture · ' + hit.filename + ' · Q' + hit.questionLabel;
+    source = source === 'ms' ? 'ms' : 'qp';
+    if (source === 'ms' && (!hit.msAvailable || !state.msDocs[hit.msFilename])) {
+      setStatus('No matching MS PDF is loaded for ' + hit.filename + '. Add it to the MS folder and re-scan.');
+      return;
+    }
+    var doc = cropDoc(hit, source);
+    if (!doc || !doc.pdf) {
+      setStatus('Re-scan the ' + (source === 'ms' ? 'MS' : 'QP') + ' PDFs in this tab to enable captures.');
+      return;
+    }
+    var pagesList = cropPages(hit, source);
+    state.crop = {
+      hit: hit, source: source, pages: pagesList, page: pagesList[0],
+      rects: {}, images: {}, displayW: 690, drag: null
+    };
+    pagesList.forEach(function (p) { state.crop.rects[p] = defaultRect(hit, source, p, pagesList); });
+    var srcName = source === 'ms' ? hit.msFilename : hit.filename;
+    $('cropTitle').textContent = (source === 'ms' ? 'MARK SCHEME · ' : 'QUESTION PAPER · ') +
+      srcName + ' · Q' + hit.questionLabel;
+    $('cropSourceBadge').textContent = source === 'ms' ? 'MS' : 'QP';
+    $('cropSourceBadge').className = source === 'ms' ? 'badge msbadge' : 'badge ok';
     $('cropSub').textContent = 'Rendering ' + pagesList.length + ' page(s)…';
     $('cropPageSelect').innerHTML = pagesList.map(function (p) {
       return '<option value="' + p + '">PDF page ' + p + '</option>';
@@ -614,7 +886,8 @@
     try {
       for (var i = 0; i < pagesList.length; i++) {
         var p = pagesList[i];
-        $('cropSub').textContent = 'Rendering PDF page ' + p + ' of ' + hit.pages[hit.pages.length - 1] + '…';
+        $('cropSub').textContent = 'Rendering ' + (state.crop.source === 'ms' ? 'MS' : 'QP') +
+          ' PDF page ' + p + ' of ' + pagesList[pagesList.length - 1] + '…';
         var pm = doc.pageMeta[p];
         var scale = Math.min(2.4, 1900 / ((pm && pm.pageWidth) || 595));
         state.crop.images[p] = await renderPdfPageToCanvas(doc.pdf, p, scale);
@@ -707,7 +980,7 @@
   }
   function saveCrops() {
     if (!state.crop) return;
-    var c = state.crop, hit = c.hit;
+    var c = state.crop, hit = c.hit, source = c.source;
     if (c.pages.some(function (p) { return !c.images[p]; })) {
       $('cropSub').textContent = 'Still rendering; please wait.'; return;
     }
@@ -717,12 +990,19 @@
       caps[p] = makeCapture(c.images[p], r);
       saved[p] = Object.assign({}, r);
     });
-    state.captures[hit.id] = caps;
-    state.cropRects[hit.id] = saved;
+    (source === 'ms' ? state.msCaptures : state.captures)[hit.id] = caps;
+    cropStore(source)[hit.id] = saved;
     invalidateCompiled();
     closeCropEditor();
-    setStatus('Capture saved for ' + hit.filename + ' · Q' + hit.questionLabel + ' · PDF page ' + hit.pageLabel + '.');
+    var label = (source === 'ms' ? 'MS ' + hit.msFilename : 'QP ' + hit.filename);
+    setStatus('Capture saved: ' + label + ' · Q' + hit.questionLabel + ' · PDF page ' +
+      (source === 'ms' ? (hit.msLabel || '1') : hit.pageLabel) + '.');
     renderResults();
+    // Same editor, same manual adjustment, for the matched MS page(s).
+    if (source === 'qp' && hit.msAvailable && state.reviews[hit.id] === 'relevant' &&
+        !msCaptureComplete(hit)) {
+      openCropEditor(hit, 'ms');
+    }
   }
   function closeCropEditor() {
     state.crop = null;
@@ -733,97 +1013,130 @@
    * v2: A4 PDF compilation, preview, approval, download
    * ------------------------------------------------------------------ */
   function invalidateCompiled() {
-    state.compiled = null; state.compiledPdf = null;
-    $('btnDownloadApproved').hidden = true;
-    $('btnDownloadApproved').disabled = true;
+    state.compiled = null;
+    ['btnDownloadApproved', 'btnDownloadMsApproved'].forEach(function (id) {
+      $(id).hidden = true; $(id).disabled = true;
+    });
+    $('btnApproveMsDownload').disabled = true;
   }
   function updateCompilePanel() {
     var conf = confirmedHits();
     var pend = pendingHits();
     var cap = conf.filter(captureComplete);
-    var sheets = cap.reduce(function (n, h) { return n + h.pages.length; }, 0);
+    var qpSheets = cap.reduce(function (n, h) { return n + h.pages.length; }, 0);
+    var msSheets = cap.reduce(function (n, h) {
+      return n + (h.msAvailable ? (h.msPages || [1]).length : 0);
+    }, 0);
+    var sheets = qpSheets + msSheets;
     $('cntConfirmed').textContent = conf.length;
     $('cntCaptured').textContent = cap.length;
     $('cntPending').textContent = pend.length;
-    $('cntSheets').textContent = sheets;
+    $('cntSheets').textContent = qpSheets + ' + ' + msSheets;
     $('cntCaptured').className = 'cnum ' + (conf.length && cap.length === conf.length ? 'ready' : '');
     $('cntPending').className = 'cnum ' + (pend.length ? 'pending' : 'ready');
     var ready = conf.length > 0 && pend.length === 0 && cap.length === conf.length;
     $('btnBuild').disabled = !ready;
     $('btnMarkRest').disabled = pend.length === 0;
-    $('btnDownloadApproved').hidden = !state.compiled;
-    $('btnDownloadApproved').disabled = !state.compiled;
+    $('btnDownloadApproved').hidden = !(state.compiled && state.compiled.qp.approved);
+    $('btnDownloadApproved').disabled = !(state.compiled && state.compiled.qp.approved);
+    $('btnDownloadMsApproved').hidden = !(state.compiled && state.compiled.ms && state.compiled.ms.approved);
+    $('btnDownloadMsApproved').disabled = !(state.compiled && state.compiled.ms && state.compiled.ms.approved);
     var msg;
     if (!state.hits.length) msg = 'Scan some PDFs and confirm a question to begin.';
-    else if (state.compiled) msg = 'Preview ready: ' + state.compiled.sheetCount + ' A4 sheet(s). Review it in the viewer, then approve the download.';
-    else if (!conf.length) msg = 'Mark at least one question ✓ Relevant. Its capture is rendered automatically.';
+    else if (state.compiled) {
+      msg = 'Preview ready: ' + state.compiled.qp.sheetCount + ' QP A4 sheet(s)' +
+        (state.compiled.ms ? ' + ' + state.compiled.ms.sheetCount + ' MS A4 sheet(s)' : '') +
+        '. Review both in the viewer, then approve each download.';
+    }
+    else if (!conf.length) msg = 'Mark at least one question ✓ Relevant. Its QP and MS captures are rendered automatically.';
     else if (pend.length) msg = pend.length + ' question(s) still need to be checked before building.';
-    else if (cap.length < conf.length) msg = (conf.length - cap.length) + ' confirmed question(s) have no capture. Re-scan the PDF if you reloaded this tab.';
-    else msg = 'Ready: ' + sheets + ' A4 sheet(s) from ' + cap.length + ' confirmed question(s). Press "Build A4 PDF (preview)".';
+    else if (cap.length < conf.length) msg = (conf.length - cap.length) + ' confirmed question(s) are missing a QP or MS capture. Use "Capture / align" for that source.';
+    else msg = 'Ready: ' + qpSheets + ' QP + ' + msSheets + ' MS A4 sheet(s) from ' + cap.length +
+      ' confirmed question(s), in the same order. Press "Build A4 PDFs (preview)".';
     $('compileStatus').textContent = msg;
+  }
+  // Build ONE A4 PDF from one kind of capture. Called twice: once for QP, once
+  // for MS. The two results are never merged into a single file.
+  async function makeA4Pdf(store, hits, pagesOf, kind) {
+    var doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
+    var PW = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight();
+    var M = 20, foot = $('includeFooter').checked;
+    var sheets = 0;
+    for (var i = 0; i < hits.length; i++) {
+      var h = hits[i], pages = pagesOf(h);
+      for (var j = 0; j < pages.length; j++) {
+        var pg = pages[j], capd = store[h.id] && store[h.id][pg];
+        if (!capd) continue;
+        if (sheets > 0) doc.addPage();
+        var availW = PW - 2 * M, availH = PH - 2 * M - (foot ? 18 : 0);
+        var sc = Math.min(availW / capd.w, availH / capd.h);
+        var w = capd.w * sc, hh = capd.h * sc;
+        doc.addImage(capd.dataUrl, 'PNG', (PW - w) / 2, M + (availH - hh) / 2, w, hh, undefined, 'FAST');
+        if (foot) {
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100);
+          doc.text((kind === 'ms' ? h.msFilename : h.filename) + '  |  Q' + h.questionLabel +
+                   '  |  ' + (kind === 'ms' ? 'MS' : 'QP') + ' PDF page ' + pg, M, PH - 10);
+        }
+        sheets++;
+      }
+    }
+    if (!sheets) throw new Error('No ' + kind.toUpperCase() + ' captures were available.');
+    var blob = doc.output('blob');
+    var bytes = new Uint8Array(await blob.arrayBuffer());
+    var pdf = await pdfjsLib.getDocument({
+      data: bytes.slice(),
+      standardFontDataUrl: './vendor/standard_fonts/',
+      disableRange: true, disableStream: true,
+      isEvalSupported: false, useWorkerFetch: false
+    }).promise;
+    return {
+      blob: blob, pdf: pdf, pageCount: pdf.numPages, sheetCount: sheets,
+      approved: false,
+      filename: (kind === 'ms' ? 'MS-Magnetism-A4.pdf' : 'QP-Magnetism-A4.pdf')
+    };
   }
   async function buildA4Pdf() {
     if (!window.jspdf || !window.jspdf.jsPDF) { setStatus('jsPDF is missing from the offline bundle.'); return; }
     var hits = confirmedHits().filter(captureComplete);
     if (!hits.length) return;
     $('btnBuild').disabled = true;
-    $('compileStatus').textContent = 'Building A4 PDF locally…';
+    $('compileStatus').textContent = 'Building the QP and MS A4 PDFs locally…';
     try {
-      var doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
-      var PW = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight();
-      var M = 20, foot = $('includeFooter').checked;
-      var sheets = 0;
-      for (var i = 0; i < hits.length; i++) {
-        var h = hits[i];
-        for (var j = 0; j < h.pages.length; j++) {
-          var pg = h.pages[j], capd = state.captures[h.id][pg];
-          if (!capd) continue;
-          if (sheets > 0) doc.addPage();
-          var availW = PW - 2 * M, availH = PH - 2 * M - (foot ? 18 : 0);
-          var s = Math.min(availW / capd.w, availH / capd.h);
-          var w = capd.w * s, hh = capd.h * s;
-          doc.addImage(capd.dataUrl, 'PNG', (PW - w) / 2, M + (availH - hh) / 2, w, hh, undefined, 'FAST');
-          if (foot) {
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100);
-            doc.text(h.filename + '  |  Q' + h.questionLabel + '  |  PDF page ' + pg, M, PH - 10);
-          }
-          sheets++;
-        }
-      }
-      if (!sheets) throw new Error('No captures were available.');
-      var blob = doc.output('blob');
-      var bytes = new Uint8Array(await blob.arrayBuffer());
-      var previewPdf = await pdfjsLib.getDocument({
-        data: bytes.slice(),
-        standardFontDataUrl: './vendor/standard_fonts/',
-        disableRange: true, disableStream: true,
-        isEvalSupported: false, useWorkerFetch: false
-      }).promise;
-      state.compiled = { blob: blob, pageCount: previewPdf.numPages, sheetCount: sheets, approved: false };
-      state.compiledPdf = previewPdf;
+      // Both lists use the SAME confirmed-hit order, so the MS PDF follows the
+      // exact order in which the questions were selected.
+      var qpPart = await makeA4Pdf(state.captures, hits, function (h) { return h.pages; }, 'qp');
+      var msHits = hits.filter(function (h) { return h.msAvailable && msCaptureComplete(h); });
+      var msPart = msHits.length
+        ? await makeA4Pdf(state.msCaptures, msHits, function (h) { return h.msPages || [1]; }, 'ms')
+        : null;
+      state.compiled = { qp: qpPart, ms: msPart };
+      state.previewSource = 'qp';
       updateCompilePanel();
       openCompiledPreview();
     } catch (e) {
-      $('compileStatus').textContent = 'Could not build the A4 PDF: ' + e.message;
+      $('compileStatus').textContent = 'Could not build the A4 PDFs: ' + e.message;
       invalidateCompiled();
       updateCompilePanel();
     }
   }
-  function downloadA4() {
-    if (!state.compiled) return;
-    var url = URL.createObjectURL(state.compiled.blob);
+  function downloadCompiled(src) {
+    var part = compiledPart(src);
+    if (!part) return;
+    var url = URL.createObjectURL(part.blob);
     var a = document.createElement('a');
-    a.href = url; a.download = 'QP-Magnetism-A4.pdf';
+    a.href = url; a.download = part.filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+    return part.filename;
   }
-  function approveAndDownload() {
-    if (!state.compiled) return;
-    state.compiled.approved = true;
-    downloadA4();
-    $('compileStatus').textContent = 'Approved. Downloaded QP-Magnetism-A4.pdf (' + state.compiled.pageCount + ' A4 sheet(s)).';
-    $('btnDownloadApproved').hidden = false;
-    $('btnDownloadApproved').disabled = false;
+  function approveAndDownload(src) {
+    var part = compiledPart(src);
+    if (!part) return;
+    part.approved = true;
+    var name = downloadCompiled(src);
+    $('compileStatus').textContent = 'Approved. Downloaded ' + name + ' (' + part.pageCount +
+      ' A4 sheet(s)). QP and MS are separate PDFs.';
+    updateCompilePanel();
   }
 
   /* ------------------------------------------------------------------ *
@@ -841,13 +1154,18 @@
       fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
         state.config = cfg;
         $('folderPath').value = cfg.defaultDir;
+        $('msFolderPath').value = cfg.defaultDir;
         refreshList();
+        refreshMsList();
       }).catch(function () {
         $('folderStatus').textContent = 'Local server not reachable - use "Choose a different folder".';
+        $('msFolderStatus').textContent = 'Local server not reachable - use "Choose a different MS folder".';
         refreshList();
+        refreshMsList();
       });
     } else {
       $('folderStatus').textContent = 'Opened as a local file. Choose a folder to continue.';
+      $('msFolderStatus').textContent = 'Opened as a local file. Choose an MS folder to continue.';
     }
 
     $('btnRefresh').addEventListener('click', refreshList);
@@ -865,6 +1183,24 @@
     });
     $('btnNone').addEventListener('click', function () {
       state.entries.forEach(function (e) { e.selected = false; }); renderFileList();
+    });
+
+    // SECOND, independent folder bar for mark schemes.
+    $('btnMsRefresh').addEventListener('click', refreshMsList);
+    $('msFolderPath').addEventListener('keydown', function (e) { if (e.key === 'Enter') refreshMsList(); });
+    $('btnMsParent').addEventListener('click', function () {
+      if (state.config) { $('msFolderPath').value = state.config.parentDir; refreshMsList(); }
+    });
+    $('btnMsAppFolder').addEventListener('click', function () {
+      if (state.config) { $('msFolderPath').value = state.config.appDir; refreshMsList(); }
+    });
+    $('msRecursive').addEventListener('change', refreshMsList);
+    $('msFolderPicker').addEventListener('change', function (e) { useMsFolderPicker(e.target.files); });
+    $('btnMsAll').addEventListener('click', function () {
+      state.msEntries.forEach(function (e) { e.selected = true; }); renderMsFileList();
+    });
+    $('btnMsNone').addEventListener('click', function () {
+      state.msEntries.forEach(function (e) { e.selected = false; }); renderMsFileList();
     });
 
     $('btnScan').addEventListener('click', runScan);
@@ -888,7 +1224,10 @@
       if (e.key === 'ArrowLeft' && state.viewer.page > 1) { state.viewer.page--; renderViewerPage(); }
       if (e.key === 'ArrowRight' && state.viewer.page < state.viewer.numPages) { state.viewer.page++; renderViewerPage(); }
     });
-    $('btnApproveDownload').addEventListener('click', approveAndDownload);
+    $('btnApproveDownload').addEventListener('click', function () { approveAndDownload('qp'); });
+    $('btnApproveMsDownload').addEventListener('click', function () { approveAndDownload('ms'); });
+    $('previewSource').addEventListener('change', function (e) { switchPreviewSource(e.target.value); });
+    $('btnPrint').addEventListener('click', printPreview);
 
     // Compile panel
     $('btnBuild').addEventListener('click', buildA4Pdf);
@@ -897,7 +1236,10 @@
       saveReviews(); invalidateCompiled(); renderResults();
     });
     $('btnDownloadApproved').addEventListener('click', function () {
-      if (state.compiled && state.compiled.approved) downloadA4();
+      if (state.compiled && state.compiled.qp.approved) downloadCompiled('qp');
+    });
+    $('btnDownloadMsApproved').addEventListener('click', function () {
+      if (state.compiled && state.compiled.ms && state.compiled.ms.approved) downloadCompiled('ms');
     });
 
     // Crop editor
@@ -908,7 +1250,8 @@
     });
     $('btnAutoCrop').addEventListener('click', function () {
       if (!state.crop) return;
-      state.crop.rects[state.crop.page] = defaultRect(state.crop.hit, state.crop.page);
+      state.crop.rects[state.crop.page] = defaultRect(
+        state.crop.hit, state.crop.source, state.crop.page, state.crop.pages);
       syncRectUI();
     });
     $('btnFullPage').addEventListener('click', function () {
@@ -932,6 +1275,7 @@
     window.addEventListener('pointerup', onCropUp);
 
     renderFileList();
+    renderMsFileList();
     renderResults();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

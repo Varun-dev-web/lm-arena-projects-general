@@ -3,11 +3,13 @@
  *   LD_LIBRARY_PATH=/tmp/chromlibs/lib NODE_PATH=/tmp/browserprobe/node_modules \
  *     QP_BASE_URL=http://127.0.0.1:8777 node tests/test_e2e.js
  *
- * Verifies: real pdf.js extraction, bundled offline OCR, result columns,
+ * Verifies: two independent QP/MS folder bars, MS filename matching, exact MS
+ * page detection, real pdf.js extraction, bundled offline OCR, result columns,
  * position-verified printed pages, exact-page in-app viewer, #page= fallback,
- * encrypted-PDF skip, review persistence, auto-capture + manual alignment,
- * A4 PDF compilation, preview WITHOUT a download, approval-gated download,
- * A4 page geometry, and that ZERO requests leave the local machine.
+ * encrypted-PDF skip, review persistence, QP + MS auto-capture and the SAME
+ * manual alignment editor, TWO separate A4 PDFs, preview / print WITHOUT a
+ * download, approval-gated downloads, A4 page geometry, and ZERO external
+ * requests.
  */
 'use strict';
 const { chromium: pw } = require('playwright-core');
@@ -44,12 +46,57 @@ function check(name, cond, extra) {
   try {
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('#fileList .fileitem', { timeout: 20000 });
+    await page.waitForSelector('#msFileList .fileitem', { timeout: 20000 });
     const fileRows = await page.locator('#fileList .fileitem').count();
-    check('folder is auto-scanned and PDFs are listed', fileRows >= 5, fileRows);
+    check('QP folder is auto-scanned and PDFs are listed', fileRows >= 5, fileRows);
     check('at least one PDF is named like a Cambridge QP',
       (await page.locator('#fileList').innerText()).includes('0625_w25_qp_41.pdf'));
     check('jsPDF is bundled and available offline',
       await page.evaluate(() => typeof window.jspdf === 'object' && typeof window.jspdf.jsPDF === 'function'));
+
+    /* ---------------- v3: two independent folder / file bars ---------------- */
+    check('SECOND, independent MS folder bar lists PDFs',
+      (await page.locator('#msFileList .fileitem').count()) >= 3);
+    check('MS bar lists the PapaCambridge-style MS filename',
+      (await page.locator('#msFileList').innerText()).includes('0625_w25_ms_41.pdf'));
+    check('MS filename decoded into year / session / component',
+      /2021/.test(await page.locator('#msFileList').innerText()) &&
+      /paper 43/.test(await page.locator('#msFileList').innerText()));
+    const preselect = await page.evaluate(() => {
+      const find = (rootId, name) => {
+        for (const row of document.querySelectorAll('#' + rootId + ' .fileitem')) {
+          if (row.textContent.includes(name)) {
+            const cb = row.querySelector('input[type=checkbox]');
+            return cb ? cb.checked : null;
+          }
+        }
+        return null;
+      };
+      return {
+        qpOfMs: find('fileList', '0625_w25_ms_41.pdf'),
+        qpOfQp: find('fileList', '0625_w25_qp_41.pdf'),
+        msOfMs: find('msFileList', '0625_w25_ms_41.pdf'),
+        msOfQp: find('msFileList', '0625_w25_qp_41.pdf')
+      };
+    });
+    check('QP bar does not preselect MS PDFs', preselect.qpOfMs === false, preselect);
+    check('QP bar preselects QP PDFs', preselect.qpOfQp === true, preselect);
+    check('MS bar preselects MS PDFs', preselect.msOfMs === true, preselect);
+    check('MS bar does not preselect QP PDFs', preselect.msOfQp === false, preselect);
+
+    const cfg = await page.evaluate(async () => (await fetch('/api/config')).json());
+    await page.fill('#msFolderPath', cfg.appDir);
+    await page.click('#btnMsRefresh');
+    await page.waitForFunction(() => /MS folder:|Could not|error/i.test(
+      document.getElementById('msFolderStatus').textContent), null, { timeout: 15000 });
+    check('changing only the MS folder leaves the QP listing untouched',
+      (await page.locator('#fileList').innerText()).includes('0625_w25_qp_41.pdf'));
+    await page.fill('#msFolderPath', cfg.defaultDir);
+    await page.click('#btnMsRefresh');
+    await page.waitForFunction(() => document.getElementById('msFileList').textContent
+      .includes('0625_w25_ms_41.pdf'), null, { timeout: 15000 });
+    check('MS folder bar can be restored independently',
+      (await page.locator('#msFileList').innerText()).includes('0625_w25_ms_41.pdf'));
 
     await page.evaluate(() => {
       window.__opened = [];
@@ -61,24 +108,34 @@ function check(name, cond, extra) {
       null, { timeout: 240000 });
     const status = await page.locator('#scanStatus').innerText();
     check('scan completes', /Finished/.test(status), status);
+    check('scan reports indexed MS PDFs', /indexed MS PDF\(s\)/.test(status), status);
 
     const bodyText = await page.locator('#resultsBody').innerText();
     check('results table has rows', bodyText.trim().length > 0, bodyText.slice(0, 200));
     check('component 0625/41 identified from filename', bodyText.includes('0625/41 (Paper 4, variant 1)'));
     check('component 0625/42 identified from filename', bodyText.includes('0625/42 (Paper 4, variant 2)'));
-    check('exact PDF page number column present', /PDF page\(s\)/i.test(await page.locator('#resultsTable').innerText()));
+    check('exact QP PDF page column present', /QP PDF page\(s\)/i.test(await page.locator('#resultsTable').innerText()));
+    check('exact MS PDF page column present', /MS PDF page\(s\)/i.test(await page.locator('#resultsTable').innerText()));
 
     const rows = await page.locator('#resultsBody tr').evaluateAll(trs => trs.map(tr =>
       Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim())));
     const q2 = rows.find(r => r[0].includes('0625_w25_qp_41.pdf') && r[2] === 'Q2');
     check('Q2 basic-magnetism hit found with page range', !!q2, rows.slice(0, 4));
     if (q2) {
-      check('Q2 ranges across PDF pages 2-3 (continuation honoured)', q2[3] === '2-3', q2[3]);
+      check('Q2 ranges across QP PDF pages 2-3 (continuation honoured)', q2[3] === '2-3', q2[3]);
       check('printed page number shown when reliable', /^[0-9]+-?[0-9]*$/.test(q2[4]), q2[4]);
+      check('exact MS PDF page for Q2 is page 1', q2[5] === '1', q2[5]);
       check('matched keyword labels shown, not question text',
-        q2[5].toLowerCase().includes('compass') && !q2[5].toLowerCase().includes('student has'));
-      check('cross-page continuation flagged uncertain for review', /review|continu|uncertain/i.test(q2[6]), q2[6]);
+        q2[6].toLowerCase().includes('compass') && !q2[6].toLowerCase().includes('student has'));
+      check('cross-page continuation flagged uncertain for review', /review|continu|uncertain/i.test(q2[7]), q2[7]);
     }
+    const q5 = rows.find(r => r[0].includes('0625_w25_qp_41.pdf') && r[2] === 'Q5');
+    check('exact MS PDF page for Q5 is page 2 (different physical page)', !!q5 && q5[5] === '2', q5);
+    const b3 = rows.find(r => r[0].includes('0625_w24_qp_42.pdf') && r[2] === 'Q3');
+    check('MS page matched by year/session/component of a second QP', !!b3 && b3[5] === '2', b3);
+    const ocrMsCell = rows.find(r => r[0].includes('scanned_magnetism_notes.pdf'));
+    check('unmatched QP reports NO matching MS rather than guessing',
+      !!ocrMsCell && ocrMsCell[5] === '—', ocrMsCell);
 
     // v2 regression: a printed page equal to the question number is only ever
     // shown if it was position-verified in a bottom-centred footer.
@@ -93,7 +150,7 @@ function check(name, cond, extra) {
 
     const ocrRow = rows.find(r => r[0].includes('scanned_magnetism_notes.pdf'));
     check('image-only (scanned) PDF produced an OCR result', !!ocrRow, rows.map(r => r[0]));
-    if (ocrRow) check('OCR-derived result flagged uncertain', /OCR|uncertain/i.test(ocrRow[6]), ocrRow[6]);
+    if (ocrRow) check('OCR-derived result flagged uncertain', /OCR|uncertain/i.test(ocrRow[7]), ocrRow[7]);
 
     check('OCR engine reports ready (offline)', /ready \(offline\)/i.test(await page.locator('#ocrBadge').innerText()),
       await page.locator('#ocrBadge').innerText());
@@ -102,16 +159,16 @@ function check(name, cond, extra) {
     check('password-protected PDF is skipped, never bypassed',
       /locked_synthetic\.pdf/.test(notes) && /password|encrypted|could not be opened/i.test(notes), notes.slice(0, 400));
 
-    const beforeExcluded = rows.filter(r => r[6].includes('Excluded')).length;
+    const beforeExcluded = rows.filter(r => r[7].includes('Excluded')).length;
     check('electromagnetism-only rows hidden by default', beforeExcluded === 0, beforeExcluded);
     await page.check('#showExcluded');
     const afterRows = await page.locator('#resultsBody tr').evaluateAll(trs => trs.map(tr =>
       Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim())));
     check('excluded motor/transformer rows available for transparency',
-      afterRows.filter(r => r[6].includes('Excluded')).length >= 2);
+      afterRows.filter(r => r[7].includes('Excluded')).length >= 2);
     await page.uncheck('#showExcluded');
 
-    // Built-in viewer opens at the exact page.
+    // Built-in viewer opens at the exact QP page.
     await page.locator('#resultsBody tr').first().locator('button', { hasText: 'Open at page' }).click();
     await page.waitForSelector('#viewer:not([hidden])');
     await page.waitForFunction(() => document.getElementById('viewerLoading').hidden === true,
@@ -137,15 +194,22 @@ function check(name, cond, extra) {
     await page.waitForFunction(() => window.__opened.length > 0, null, { timeout: 10000 });
     const opened = await page.evaluate(() => window.__opened);
     check('fallback opens original PDF at #page=N', opened.some(u => /#page=\d+/.test(u)), opened);
+    check('row offers a direct link to the matched MS page',
+      (await page.locator('#resultsBody').innerText()).includes('Open MS at page'));
 
-    /* ---------------- v2: capture + alignment ---------------- */
-    const firstRow = page.locator('#resultsBody tr').first();
-    const firstId = await firstRow.getAttribute('data-hit-id');
-    await firstRow.locator('.reviewbtns button').first().click();
+    /* ---------------- QP capture + manual alignment ---------------- */
+    const q2Row = page.locator('#resultsBody tr').filter({ hasText: '0625_w25_qp_41.pdf' })
+      .filter({ hasText: 'Q2' }).first();
+    const firstId = await q2Row.getAttribute('data-hit-id');
+    await q2Row.locator('.reviewbtns button').first().click();
     await page.waitForSelector('#cropModal:not([hidden])', { timeout: 30000 });
-    check('confirming a question automatically opens the capture editor', await page.locator('#cropModal').isVisible());
+    check('confirming a question automatically opens the QP capture editor',
+      await page.locator('#cropModal').isVisible());
     await page.waitForFunction(() => document.getElementById('cropCanvas').width >= 600 &&
       /Drag the box/i.test(document.getElementById('cropSub').textContent), null, { timeout: 30000 });
+    check('QP editor is identified as QUESTION PAPER',
+      /QUESTION PAPER/.test(await page.locator('#cropTitle').innerText()) &&
+      (await page.locator('#cropSourceBadge').innerText()) === 'QP');
     const cropPixels = await page.evaluate(() => {
       const c = document.getElementById('cropCanvas');
       const d = c.getContext('2d').getImageData(0, 0, Math.min(c.width, 400), Math.min(c.height, 400)).data;
@@ -153,7 +217,7 @@ function check(name, cond, extra) {
       for (let i = 0; i < d.length; i += 4) if (d[i] < 150 && d[i + 1] < 150 && d[i + 2] < 150) dark++;
       return { w: c.width, h: c.height, dark: dark };
     });
-    check('capture editor renders the actual PDF page', cropPixels.w > 300 && cropPixels.dark > 20, cropPixels);
+    check('QP capture editor renders the actual PDF page', cropPixels.w > 300 && cropPixels.dark > 20, cropPixels);
     const autoRect = await page.locator('#cropRect').evaluate(n =>
       ({ w: parseFloat(n.style.width), h: parseFloat(n.style.height) }));
     check('auto-selected region is a question crop, not the whole page',
@@ -183,20 +247,42 @@ function check(name, cond, extra) {
     const after = await page.locator('#cropRect').evaluate(n => n.style.left);
     check('dragging the crop box manually re-aligns it', before !== after, { before: before, after: after });
 
-    // Use full page (explicit user choice) to save the capture(s).
+    // Save QP captures with full-page regions. The SAME editor then opens for MS.
+    await page.click('#btnUseFullPage');
+    await page.waitForFunction(() => /MARK SCHEME/.test(document.getElementById('cropTitle').textContent) &&
+      !document.getElementById('cropModal').hidden, null, { timeout: 30000 });
+    check('saving QP capture chains into the same manual editor for the MS',
+      await page.locator('#cropModal').isVisible());
+    check('MS editor is identified as MARK SCHEME',
+      (await page.locator('#cropSourceBadge').innerText()) === 'MS' &&
+      /0625_w25_ms_41\.pdf/.test(await page.locator('#cropTitle').innerText()));
+    await page.waitForFunction(() => document.getElementById('cropCanvas').width >= 600 &&
+      /Drag the box/i.test(document.getElementById('cropSub').textContent), null, { timeout: 30000 });
+    const msCropPixels = await page.evaluate(() => {
+      const c = document.getElementById('cropCanvas');
+      const d = c.getContext('2d').getImageData(0, 0, Math.min(c.width, 400), Math.min(c.height, 400)).data;
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 150 && d[i + 1] < 150 && d[i + 2] < 150) dark++;
+      return { w: c.width, h: c.height, dark: dark };
+    });
+    check('MS editor renders the exact matched MS page', msCropPixels.w > 300 && msCropPixels.dark > 20, msCropPixels);
+    // The MS editor must support the identical manual alignment controls.
+    await page.locator('#cropL').fill('8');
+    await page.locator('#cropL').dispatchEvent('change');
+    check('MS editor supports the same numeric manual adjustment',
+      parseFloat(await page.locator('#cropRect').evaluate(n => n.style.left)) === 8);
     await page.click('#btnUseFullPage');
     await page.waitForFunction(() => document.getElementById('cropModal').hidden === true, null, { timeout: 30000 });
-    check('capture editor closes after saving', await page.locator('#cropModal').isHidden());
+    check('both capture editors close after saving', await page.locator('#cropModal').isHidden());
     const captureBadge = await page.locator(`#resultsBody tr[data-hit-id="${firstId}"] .capture-line`).innerText();
-    check('saved capture shown on the confirmed row', /capture/i.test(captureBadge), captureBadge);
-    check('confirmed-questions counter updated', (await page.locator('#cntConfirmed').innerText()) === '1'
-      || parseInt(await page.locator('#cntConfirmed').innerText(), 10) >= 1);
+    check('QP and MS captures both shown on the confirmed row',
+      /QP 2\/2 captured/.test(captureBadge) && /MS 1\/1 captured/.test(captureBadge), captureBadge);
 
     await page.selectOption('#filter', 'relevant');
     check('review filter works', (await page.locator('#resultsBody tr').count()) >= 1);
     await page.selectOption('#filter', 'all');
 
-    /* ---------------- v2: build, preview, approval ---------------- */
+    /* ---------------- build TWO separate A4 PDFs, preview, print, approve ---------------- */
     const pending = parseInt(await page.locator('#cntPending').innerText(), 10);
     check('unchecked questions are still reported before build', pending >= 0);
     if (pending > 0) {
@@ -204,37 +290,87 @@ function check(name, cond, extra) {
       check('marking remaining questions clears the pending count',
         (await page.locator('#cntPending').innerText()) === '0');
     }
-    check('build button enabled only after checking + capturing',
+    check('build button enabled only after checking + BOTH captures',
       await page.locator('#btnBuild').isEnabled(), await page.locator('#compileStatus').innerText());
+    check('compile panel counts QP and MS sheets separately',
+      /\d+ \+ \d+/.test(await page.locator('#cntSheets').innerText()),
+      await page.locator('#cntSheets').innerText());
 
     await page.click('#btnBuild');
     await page.waitForSelector('#approveBar:not([hidden])', { timeout: 60000 });
-    check('A4 PDF preview opens in the built-in viewer', await page.locator('#viewer').isVisible());
+    check('A4 QP preview opens in the built-in viewer', await page.locator('#viewer').isVisible());
     check('preview is labelled as not yet downloaded',
       /not downloaded yet/i.test(await page.locator('#viewerSub').innerText()));
+    check('MS approve button is enabled when an MS PDF exists',
+      await page.locator('#btnApproveMsDownload').isEnabled());
     await page.waitForFunction(() => document.getElementById('viewerLoading').hidden === true, null, { timeout: 30000 });
     const a4 = await page.evaluate(() => {
       const c = document.getElementById('viewerCanvas');
       return { w: c.width, h: c.height };
     });
-    check('preview renders a portrait A4-shaped sheet', a4.h > a4.w && Math.abs(a4.h / a4.w - 841.89 / 595.28) < 0.05, a4);
+    check('QP preview renders a portrait A4-shaped sheet',
+      a4.h > a4.w && Math.abs(a4.h / a4.w - 841.89 / 595.28) < 0.05, a4);
+
+    // Switch the preview to the SECOND, separate PDF.
+    await page.selectOption('#previewSource', 'ms');
+    await page.waitForFunction(() => /MARK SCHEME/.test(document.getElementById('viewerTitle').textContent),
+      null, { timeout: 30000 });
+    await page.waitForFunction(() => document.getElementById('viewerLoading').hidden === true, null, { timeout: 30000 });
+    const a4ms = await page.evaluate(() => {
+      const c = document.getElementById('viewerCanvas');
+      return { w: c.width, h: c.height };
+    });
+    check('MS preview renders its own portrait A4-shaped sheet',
+      a4ms.h > a4ms.w && Math.abs(a4ms.h / a4ms.w - 841.89 / 595.28) < 0.05, a4ms);
+    const openedBefore = await page.evaluate(() => window.__opened.length);
+    await page.click('#btnPrint');
+    await page.waitForFunction(n => window.__opened.length > n, openedBefore, { timeout: 15000 });
+    const openedNow = await page.evaluate(() => window.__opened);
+    check('Print opens the current A4 PDF in a new tab (no download)',
+      openedNow.some(u => /^blob:/.test(u)) && downloads.length === 0, openedNow.slice(-2));
+    await page.selectOption('#previewSource', 'qp');
+    await page.waitForFunction(() => /QUESTION PAPER/.test(document.getElementById('viewerTitle').textContent),
+      null, { timeout: 30000 });
+    check('preview can switch back to the QP PDF',
+      /QUESTION PAPER/.test(await page.locator('#viewerTitle').innerText()));
     check('NO download occurred before approval', downloads.length === 0, downloads.length);
 
-    const dlPromise = page.waitForEvent('download', { timeout: 30000 });
+    const dlPromiseQ = page.waitForEvent('download', { timeout: 30000 });
     await page.click('#btnApproveDownload');
-    const dl = await dlPromise;
-    check('approval triggers the A4 PDF download', dl.suggestedFilename() === 'QP-Magnetism-A4.pdf', dl.suggestedFilename());
-    const dlPath = await dl.path();
-    const pdfBuf = fs.readFileSync(dlPath);
-    const pdfText = pdfBuf.toString('latin1');
-    check('downloaded file is a real PDF', pdfText.slice(0, 5) === '%PDF-', pdfText.slice(0, 12));
-    const mb = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\]/.exec(pdfText);
-    check('downloaded PDF pages are A4-sized',
-      !!mb && Math.abs(parseFloat(mb[1]) - 595.28) < 1 && Math.abs(parseFloat(mb[2]) - 841.89) < 1,
-      mb ? [mb[1], mb[2]] : null);
-    const pageCount = (pdfText.match(/\/Type\s*\/Page\b/g) || []).length;
-    check('downloaded A4 PDF has at least one page', pageCount >= 1, pageCount);
-    check('re-download button appears only after approval', await page.locator('#btnDownloadApproved').isVisible());
+    const dlQ = await dlPromiseQ;
+    check('approving QP downloads QP-Magnetism-A4.pdf',
+      dlQ.suggestedFilename() === 'QP-Magnetism-A4.pdf', dlQ.suggestedFilename());
+    const pdfQ = fs.readFileSync(await dlQ.path());
+    const textQ = pdfQ.toString('latin1');
+    check('QP file is a real PDF', textQ.slice(0, 5) === '%PDF-', textQ.slice(0, 12));
+    const mbQ = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\]/.exec(textQ);
+    check('QP pages are A4-sized',
+      !!mbQ && Math.abs(parseFloat(mbQ[1]) - 595.28) < 1 && Math.abs(parseFloat(mbQ[2]) - 841.89) < 1,
+      mbQ ? [mbQ[1], mbQ[2]] : null);
+    check('QP A4 PDF has at least one page',
+      (textQ.match(/\/Type\s*\/Page\b/g) || []).length >= 1);
+    check('QP re-download button appears only after approval',
+      await page.locator('#btnDownloadApproved').isVisible());
+
+    const dlPromiseM = page.waitForEvent('download', { timeout: 30000 });
+    await page.click('#btnApproveMsDownload');
+    const dlM = await dlPromiseM;
+    check('approving MS downloads a SEPARATE MS-Magnetism-A4.pdf',
+      dlM.suggestedFilename() === 'MS-Magnetism-A4.pdf', dlM.suggestedFilename());
+    const pdfM = fs.readFileSync(await dlM.path());
+    const textM = pdfM.toString('latin1');
+    check('MS file is a real PDF', textM.slice(0, 5) === '%PDF-', textM.slice(0, 12));
+    const mbM = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\]/.exec(textM);
+    check('MS pages are A4-sized',
+      !!mbM && Math.abs(parseFloat(mbM[1]) - 595.28) < 1 && Math.abs(parseFloat(mbM[2]) - 841.89) < 1,
+      mbM ? [mbM[1], mbM[2]] : null);
+    check('MS A4 PDF has at least one page',
+      (textM.match(/\/Type\s*\/Page\b/g) || []).length >= 1);
+    check('QP and MS are genuinely two different PDF files, not one combined PDF',
+      !pdfQ.equals(pdfM), { qp: pdfQ.length, ms: pdfM.length });
+    check('MS re-download button appears only after approval',
+      await page.locator('#btnDownloadMsApproved').isVisible());
+    check('exactly two downloads, both approved by the user', downloads.length === 2, downloads.length);
 
     check('no requests left the local machine', external.length === 0, external.slice(0, 5));
     const realErrors = consoleErrors.filter(e => !/favicon|net::ERR_/i.test(e));

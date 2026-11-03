@@ -1,208 +1,130 @@
-# QP Page Finder v2 — testing report & limitations
+# QP Page Finder v3 — testing report & limitations
 
 **Date:** 2026-11-03 · **Packaged for:** Windows (macOS/Linux launchers included)
 
 This report states what was *actually* run and checked. Nothing here is claimed on
 the basis of inspection alone. All tests used **synthetic PDFs with invented
-text**; no Cambridge question paper was downloaded, opened, copied, bundled,
-summarised or screenshotted during this work.
+text**; no Cambridge question paper or mark scheme was downloaded, opened,
+copied, bundled, summarised or screenshotted during this work. The direct paper
+links in `../QUESTION-PAPER-LINKS*.md` were verified only as **live landing-page
+labels and hrefs** — no PDF bytes or HTTP response headers were fetched.
 
 ## 1. Test environment
 
 * Sandbox: Linux, Python 3.11.2, Node 22.22.3.
-* Headless Chromium (via `playwright-core` + a self-contained Chromium binary) was
-  used to drive the app as a real browser. Those are **development-only** tools;
-  they are **not** bundled in the app and are **not** needed to run it.
-* Test PDFs were **synthetic files written for testing** (`tests/make_fixtures.py`),
-  containing invented sentences. Fixtures are generated into a temporary folder
-  and are deliberately **not** shipped in the ZIP.
-* The live preview of the app in this session uses `--host 0.0.0.0` (required by
-  the preview proxy) and a persisted folder of synthetic fixtures. The shipped
-  launchers use the default `--host 127.0.0.1`, i.e. **localhost only**.
+* Headless Chromium (via `playwright-core` + a self-contained Chromium binary)
+  drove the app as a real browser. Those are **development-only** tools; they are
+  **not** bundled in the app and are **not** needed to run it.
+* Test PDFs are **synthetic files written for testing** (`tests/make_fixtures.py`),
+  containing invented sentences. v3 adds three synthetic MS fixtures
+  (`0625_w25_ms_41.pdf`, `0625_w24_ms_42.pdf`, `0625_w21_ms_43.pdf`) — the last
+  one deliberately has no matching QP. Fixtures are generated into a temporary
+  folder and are **not** shipped in the ZIP.
+* The session's live preview uses `--host 0.0.0.0` (required by the preview proxy)
+  and a persisted folder of synthetic fixtures. The shipped launchers default to
+  `--host 127.0.0.1`, i.e. **localhost only**.
 
 ## 2. What was tested and the exact results
 
 | Test | Command / setup | Result |
 | --- | --- | --- |
-| JS / Python syntax | `node --check web/app.js`, `node --check web/analyze.js`, `python3 -m py_compile server.py` | Pass |
-| Analysis engine (35 assertion groups: classification incl. multi-line phrases and term families, filename/component parsing, question-number detection with positional left-margin guard, positional footer printed-page detection, printed-page sequence, question-number-reuse regression, cross-page ranges, OCR flagging, crop hints) | `node tests/test_analyze.js` | **35/35 passed** |
-| Both servers (Python + Node): every endpoint, CSP/privacy headers, path-traversal blocking, bundled asset delivery **including jsPDF and its licence**, read-only guarantee | `python3 tests/test_server.py /home/user/qp-preview-pdfs` | **41 checks passed** (20 Python + 20 Node + 1 shared hash check) |
-| Real-browser end-to-end, Python server, from source on port 8777 | `LD_LIBRARY_PATH=… NODE_PATH=… QP_BASE_URL=http://127.0.0.1:8777 node tests/test_e2e.js` | **51/51 passed**, 0 external requests, 0 uncaught errors |
-| Real-browser end-to-end, **Node.js server**, from source on port 8898 | `QP_BASE_URL=http://127.0.0.1:8898 node tests/test_e2e.js` | **51/51 passed**, 0 external requests, 0 uncaught errors |
-| **The packaged ZIP itself**: extracted `qp-page-finder-windows.zip` into a temp folder, placed synthetic PDFs beside it (exactly as a user would), started `server.py` with **no `--folder` argument** on port 8899, then re-ran the browser test from the extracted `tests/` folder | `QP_BASE_URL=http://127.0.0.1:8899 node tests/test_e2e.js` | default folder auto-detected (**5 PDFs**), **51/51 passed**, 0 external requests |
-| ZIP integrity | `zipfile.testzip()` | `None`; **48 entries** (~7.1 MB) |
-| Downloaded A4 PDF byte check | parsed the approved download in the E2E test | starts `%PDF-`; `/MediaBox [0 0 595.28 841.89]` (A4); at least 1 `/Type /Page` |
+| JS / Python syntax | `node --check web/app.js`, `node --check web/analyze.js`, `node --check tests/test_analyze.js`, `node --check tests/test_e2e.js`, `python3 -m py_compile server.py` | Pass |
+| Analysis engine (40 assertion groups: v2 classification/term families, positional footer printed pages, crop hints, **plus v3 MS filename parsing, year/session/component matching, MS row-marker detection, exact MS page index, centred-number guard**) | `node tests/test_analyze.js` | **40/40 passed** |
+| Both servers (Python + Node): every endpoint, CSP/privacy headers, path traversal, bundled asset delivery (pdf.js, OCR WASM/data, **jsPDF + licence**), **synthetic MS fixtures in the scan**, **dual folder bars / dual approve buttons / v3 engine served**, read-only guarantee | `python3 tests/test_server.py /home/user/qp-preview-pdfs` | **52 checks passed** (1 static + 25 Python + 25 Node + 1 shared hash) |
+| Real-browser E2E, **Python server, from source**, port 8777 | `LD_LIBRARY_PATH=… NODE_PATH=… QP_BASE_URL=http://127.0.0.1:8777 node tests/test_e2e.js` | **83/83 passed**, 0 external requests, 0 uncaught errors |
+| Real-browser E2E, **Node.js server, from source**, port 8898 | `QP_BASE_URL=http://127.0.0.1:8898 node tests/test_e2e.js` | **83/83 passed**, 0 external requests, 0 uncaught errors |
+| **The packaged ZIP itself**: extracted `qp-page-finder-windows.zip` into a temp folder, placed the 8 synthetic PDFs beside it (exactly as a user would), started `server.py` with **no `--folder` argument** on port 8897, then re-ran the browser test from the extracted `tests/` folder | `QP_BASE_URL=http://127.0.0.1:8897 node tests/test_e2e.js` | health `{"ok": true, ...}`, default folder auto-detected (**8 PDFs**), **83/83 passed**, 0 external requests |
+| ZIP integrity | `zipfile.testzip()` | `None`; **49 entries** (~7.06 MB) |
+| Downloaded PDF byte checks | parsed **both** approved downloads in the E2E test | each starts `%PDF-`, `/MediaBox [0 0 595.28 841.89]` (A4), ≥1 `/Type /Page`; the two byte buffers are **not equal** |
 
 ### What the end-to-end browser test actually exercised
 
-Original v1 behaviours (all still present):
+**v3 (new):**
 
-* The folder is auto-scanned on page load and all synthetic PDFs are listed.
-* Clicking **Scan** runs **real pdf.js text extraction** on multi-page PDFs.
+* Two independent folder bars are both auto-populated; the QP bar does **not**
+  pre-select MS PDFs and the MS bar **does** pre-select them (and vice versa).
+* The MS bar decodes a PapaCambridge-style name into year / session / component.
+* Changing **only** the MS folder path leaves the QP listing untouched, and the MS
+  bar can be restored independently.
+* The scan reports the number of indexed MS PDFs.
+* Results have both **QP PDF page(s)** and **MS PDF page(s)** columns. On the
+  synthetic `0625_w25_qp_41.pdf`, **Q2 → MS page 1** and **Q5 → MS page 2**
+  (two different physical MS pages); on the second paper, **Q3 → MS page 2**.
+* A QP with no matching MS reports `—` rather than inventing a page.
+* Confirming a question opens the **QP** alignment editor (`QP` badge). After
+  saving, the **same editor** opens for the MS (`MS` badge, MS filename in title),
+  renders the exact matched MS page, and supports the identical numeric manual
+  adjustment; saving it closes both editors.
+* The row shows `✓ QP 2/2 captured` and `✓ MS 1/1 captured`.
+* The compile panel reports `QP sheets + MS sheets` separately and requires
+  **both** captures before **Build A4 PDFs (preview)** is enabled.
+* The preview dropdown switches between the QP A4 PDF and the MS A4 PDF, each
+  rendering a portrait A4-shaped sheet.
+* **Print / open for printing** opens the current PDF as a `blob:` URL in a new
+  tab, with **zero downloads**.
+* **No download occurs before approval.** Two separate approvals produce two
+  separate downloads: `QP-Magnetism-A4.pdf` and `MS-Magnetism-A4.pdf`. Both are
+  real A4 PDFs and are byte-different, i.e. **not one combined PDF**.
+
+**v1 / v2 regressions (all still present):**
+
+* Auto-scanned folder; real pdf.js text extraction on multi-page PDFs.
 * The **image-only PDF** was rasterised and read by the **bundled offline
-  Tesseract WebAssembly engine** with the bundled `eng.traineddata.gz`; the OCR
-  engine reported "ready (offline)" and the result was flagged uncertain.
-* Results show filename, component (`0625/41`, `0625/42`), question number,
-  exact physical PDF page, page **range** for a question continuing across pages
-  (`2-3`), and the **printed page number** when a consistent sequence was found.
-* Only keyword labels are displayed — the test asserts that question text is not
-  shown.
-* Motor / transformer / induction-only questions were **excluded** by default and
-  could be revealed with the transparency toggle.
-* A **password-protected PDF was skipped** with an explicit warning; no bypass was
-  attempted.
-* **Open at page** opened the built-in viewer at the exact page; the test verified
-  that the canvas actually rendered non-blank page content, and that page
-  navigation works.
-* **Open PDF at page** produced a URL with `#page=N`.
-* Review marking persisted in `localStorage` and the filter worked.
-* **Zero requests left the local machine** (every request was checked); zero
-  uncaught browser errors.
+  Tesseract WASM engine** with bundled `eng.traineddata.gz`; the OCR engine
+  reported "ready (offline)" and the result was flagged uncertain.
+* Filename, component (`0625/41`, `0625/42`), question number, exact physical QP
+  page and a **page range** for a cross-page question (`2-3`).
+* Position-verified printed page numbers; a plain question number is never reused
+  as a printed page.
+* Only keyword labels are shown — the test asserts question text is absent.
+* Motor / transformer / induction-only questions excluded by default, available
+  via the transparency toggle.
+* Password-protected synthetic PDF **skipped**, never bypassed.
+* In-app viewer opens at the exact page and renders real canvas content; the
+  `#page=N` fallback opens the original PDF; an **Open MS at page** link is present.
+* Review marks persist in local storage.
+* Auto-capture, auto-select question region, numeric percentage alignment,
+  dragging the crop box, and full-page saving.
+* **Zero external requests** and **zero uncaught browser errors** throughout.
 
-New v2 behaviours:
+## 3. What was NOT tested / known limitations
 
-* `window.jspdf.jsPDF` is present from the **bundled** UMD file (no CDN).
-* **Printed-page regression:** for every result row where the printed number
-  equals the question number, the cell's tooltip must say *position verified*.
-  Asserted across all rows.
-* Marking a question **✓ Relevant** automatically opened the capture editor and
-  rendered a non-blank canvas of the real PDF page.
-* The **auto-selected crop** was a partial region (not the whole page) derived
-  from pdf.js line positions; **Auto-select question region** re-applied it.
-* **Manual alignment** worked both by typing a percentage and by dragging the
-  crop rectangle; the computed `style.left` changed in both cases.
-* Saving captures closed the editor, showed a capture badge on the row, and
-  updated the compile counters.
-* The **build button was disabled** until every uncertain question was checked
-  and every confirmed question had a capture; **Mark remaining unchecked as not
-  relevant** cleared the pending count.
-* Building opened an **A4 preview** with a visible approval bar, labelled *not
-  downloaded yet*; the rendered canvas had a portrait A4 aspect ratio.
-* **No download event occurred before approval** (asserted explicitly).
-* Clicking **Approve & download** produced exactly one download named
-  `QP-Magnetism-A4.pdf`, whose bytes were a real PDF with A4 MediaBox and at
-  least one page. The re-download button appeared only afterwards.
-* **Zero requests left the local machine** during the whole workflow including
-  PDF generation; zero uncaught browser errors.
+* **No real Cambridge QP or MS PDF was used.** Everything above is synthetic
+  fixtures and a local headless browser. Real mark schemes are typeset as tables;
+  the MS question-page index uses left-margin row markers (`2 (a) …`,
+  `Question 5`, bare margin numbers) with a footer/centred-number guard. If a
+  question number cannot be detected, the app says `page ? (align)` and asks you
+  to align that MS page manually rather than guessing.
+* **Matching is filename-based.** It requires `0625_<m|s|w><yy>_ms_<cc>.pdf` and
+  `0625_<m|s|w><yy>_qp_<cc>.pdf` with identical syllabus, series code and
+  component. Renamed files, combined files or a different component numbering
+  will report "no matching MS". A duplicate filename in two folders is still an
+  edge case.
+* **Heuristic topic matching** (keyword families) can miss or over-match. Uncertain
+  rows are flagged; the app never decides relevance for you.
+* OCR is imperfect; OCR-derived rows are always flagged uncertain. Encrypted,
+  corrupt or password-protected PDFs are skipped.
+* The `Print` button opens the A4 PDF in a new browser tab for the browser's own
+  print dialog. Whether that dialog appears depends on the browser's PDF viewer;
+  the test only asserts a `blob:` tab was opened with no download.
+* `#page=N` in an external PDF viewer is browser-dependent.
+* Captures are memory-only in the tab; reloading requires re-scanning/re-saving.
+* Printed-page detection requires a bottom-centred footer number; otherwise `—`.
+* **Third-party links** in `../QUESTION-PAPER-LINKS.md` and
+  `../QUESTION-PAPER-LINKS-ALL-SERIES.md` are PapaCambridge landing-page labels
+  and hrefs, not official Cambridge URLs. No PDF was downloaded, opened or
+  byte-verified; links may change. For 0625 the March series publishes only
+  variant 42 for Paper 4, so March 41/43 are reported **MISSING**, not invented.
+  Oct/Nov 2026 is prediction-only and excluded.
+* No access control was bypassed, and no PDF text or mark-scheme content is
+  reproduced anywhere in this repository.
 
-### Read-only guarantee (tested)
+## 4. Privacy assertions checked by the tests
 
-`test_server.py` hashes every fixture PDF before and after all requests and asserts
-the hashes are identical. The server opens PDFs with `open(..., "rb")` /
-`fs.readFileSync` only; there is no write path anywhere in the app. The A4 PDF is
-created **in browser memory** and offered as a Blob download; it never writes to
-the PDF folder and never modifies an original.
-
-### Offline guarantee (tested)
-
-* All runtime assets resolve to the localhost server: `pdf.min.js`,
-  `pdf.worker.min.js`, `tesseract.min.js`, `worker.min.js`, the WASM cores,
-  `eng.traineddata.gz`, `jspdf.umd.min.js`, its licence and the standard fonts
-  are bundled in `web/vendor/`; the server tests now assert jsPDF delivery for
-  **both** servers.
-* A `Content-Security-Policy` with `connect-src 'self'` / `default-src 'self'` is
-  served on every response and was asserted in the server tests.
-* The E2E test recorded **0 external requests** during a full scan including OCR,
-  capture rendering, A4 generation and download, on both servers and from the
-  extracted ZIP.
-
-## 3. Bugs found and fixed during testing
-
-1. A unit-name regex (`1 A ...`) was swallowing genuine question numbers → fixed.
-2. Bare footer page numbers were being mistaken for question numbers → fixed.
-3. `server.js` set HTTP headers after `writeHead` (Node throws) → fixed.
-4. `server.js` ignored `--port 9000` style arguments → fixed; both `--port=X` and
-   `--port X` now work.
-5. The app was not passing `printedCandidate` into the analysis engine, so printed
-   page numbers were always blank in the real app (unit tests passed because they
-   supplied it manually) → fixed and re-verified in the browser.
-6. On restart, the port-probe socket lacked `SO_REUSEADDR`, so leftover TIME_WAIT
-   connections made the server silently fall back to a random port instead of the
-   requested one → fixed; `--port 8777` is now honoured on restart. Also removed
-   the `Cross-Origin-Opener-Policy` response header because it can interfere with
-   iframe embedding in local preview proxies (the `connect-src 'self'` CSP still
-   blocks all external connections).
-7. **v2 — printed page number shown equal to the question number.** In v1 the
-   printed-page column was inferred from bare numbers near the end of extracted
-   lines, which could pick up the question number itself. v2 keeps pdf.js item
-   coordinates, accepts a printed number only from the **bottom-centred footer
-   band**, rejects centred numbers as question numbers, passes detected question
-   numbers as a **banned list** to the text-only fallback, and applies a final
-   guard that suppresses any unconfirmed printed value equal to the question
-   number. Covered by unit tests and a browser regression assertion.
-8. **v2 — matching accuracy.** Hyphenated line breaks and phrases split across
-   lines are normalised before matching; overlapping phrases are grouped into
-   term families and scored, so one concept does not inflate confidence. Covered
-   by new unit tests.
-
-## 4. Missing papers / link limitations
-
-* **No missing papers** in the requested 5 × 3 grid: all 15 QP entries were found
-  on PapaCambridge's live year pages. See `QUESTION-PAPER-LINKS.md`.
-* **No official Cambridge public download** exists for these Oct/Nov papers; the
-  Cambridge site publishes only a small selection and points schools to the
-  login-only School Support Hub. All 15 links are therefore hosted by
-  PapaCambridge (third-party), and are labelled as such. No login or access
-  control was bypassed.
-* **Link verification scope:** I verified each entry's label, filename, session,
-  syllabus, component and download URL on the live source pages. This sandbox's
-  shell has no general outbound internet, so I could not issue HTTP HEAD requests
-  to the PDF URLs, and — as requested — I did **not** download the PDFs. I
-  therefore cannot confirm the byte-level contents of any linked file.
-* Third-party archive URLs can change; the report documents the URL pattern and
-  alternative hosts.
-
-## 5. Limitations of the app (please read)
-
-* **Heuristic matching.** Topic filtering is keyword-based, not semantic. A
-  genuine basic-magnetism question phrased in unusual words could be missed; a
-  question that merely mentions a magnet inside an electromagnetism question is
-  put in the "needs review" bucket rather than silently included. Use the
-  **Needs review** filter and the **Show excluded** toggle.
-* **Question numbers.** Detected from line-start numbering in the **left margin**
-  with a monotonic guard. Multi-column layouts, unusual fonts, or numbers printed
-  as graphics may yield "Not identifiable". Cross-page continuation is inferred
-  and always flagged uncertain.
-* **Printed page numbers.** Require a bottom-centred footer number on at least 3
-  pages with a consistent offset. Otherwise the column shows `—`. Even when a
-  printed number legitimately equals a question number, it is shown only with a
-  *position verified* tooltip. Always rely on the **PDF page** column.
-* **OCR.** English only, LSTM-only Tesseract model, ~1750 px rasterisation.
-  Handwriting, tiny diagrams, heavy scan noise, or non-English text may not be
-  recognised. OCR results are always flagged uncertain. On OCR pages the auto
-  crop falls back to nearly the whole page because there are no text coordinates;
-  align manually.
-* **Captures are page images, not vector text.** The A4 PDF is built from PNG
-  crops of the rendered page at up to 2.4× scale. Very small print may be less
-  crisp than the original PDF; zoom the preview to check legibility. Each page of
-  a cross-page question becomes its own A4 sheet.
-* **Captures live only in the open tab.** Reloading or closing the tab discards
-  them (review marks persist). Re-scan and re-save to rebuild. No capture or
-  generated PDF is written to disk by the app itself; only the browser download
-  you approve creates a file.
-* **Download gate.** Building the PDF shows a preview only. A download happens
-  solely on **Approve & download** (or the post-approval re-download button).
-  Changing a review, a crop or the footer option invalidates the previous build.
-* **Encrypted / password-protected / corrupt PDFs** are skipped with a warning;
-  the app never attempts to bypass PDF security.
-* **Browser PDF `#page=N`** is honoured by most desktop PDF viewers but not all.
-  The built-in viewer is the primary exact-page mechanism; the physical page
-  number is always printed in the row as a fallback.
-* **Duplicate filenames** in different subfolders are keyed by filename, so two
-  PDFs with the same name could share a viewer entry. Keep filenames unique.
-* **Runtime**. Requires Python 3.8+ or Node.js 16+ plus a modern browser
-  (Chrome / Edge / Firefox / Safari). Everything else is bundled. Opening
-  `web/index.html` directly via `file://` is not supported (browsers block PDF
-  workers there); the app shows a clear warning and a folder-picker fallback.
-* The app produces **no answers and no mark schemes**, and does not reproduce
-  question text in the results table. The A4 PDF contains only the page regions
-  **you** selected from **your own local PDFs**.
-
-## 6. Files
-
-* `tests/make_fixtures.py` — generates the synthetic PDFs (dev only; needs
-  `reportlab` + `pillow`).
-* `tests/test_analyze.js` — 35 assertion groups, no dependencies.
-* `tests/test_server.py` — 41 integration checks for both servers, no dependencies.
-* `tests/test_e2e.js` — 51 browser end-to-end checks (dev only; needs Playwright
-  and a headless Chromium).
+* CSP `connect-src 'self'` and `default-src 'self'`; no external script source.
+* `Cache-Control: no-store`; PDFs served `inline` (read-only, no attachment).
+* Path traversal (`../../README.md`) blocked; missing PDF → 404; bad folder →
+  JSON error.
+* All synthetic fixture **sha256 hashes unchanged** after every server request.
+* The browser test records every request and asserts **0 external requests**.
+* Downloads occur **only** after the user clicks an approve button.

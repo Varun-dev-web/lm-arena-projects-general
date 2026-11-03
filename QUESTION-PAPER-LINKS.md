@@ -2,7 +2,13 @@
 
 **Prepared 2026-11-03.** Links only — no question papers were downloaded, opened,
 copied, reproduced, summarised, screenshotted or bundled. No mark-scheme links are
-included. No logins, paywalls or access controls were bypassed.
+included *in this file*. No logins, paywalls or access controls were bypassed.
+
+> **Superseded / extended:** see
+> [`QUESTION-PAPER-LINKS-ALL-SERIES.md`](./QUESTION-PAPER-LINKS-ALL-SERIES.md)
+> for **all series (Feb/March, May/June, Oct/Nov)**, five years, with **question
+> paper AND mark scheme** links listed separately. That later request explicitly
+> asked for MS links; this file is kept as the original Part 1 artifact.
 
 ## Why these five years
 
