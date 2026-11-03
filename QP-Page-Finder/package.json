@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "commonjs",
+  "description": "QP Page Finder: portable offline app. No npm install and no dependencies are needed. This file only declares the module type for the optional Node.js fallback server."
+}

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>QP Page Finder - basic magnetism (0625)</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">⌕</span>
+    <div>
+      <h1>QP Page Finder</h1>
+      <p>Find pages about <strong>basic magnetism</strong> in your Cambridge IGCSE Physics 0625 question papers</p>
+    </div>
+  </div>
+  <div class="badges">
+    <span class="badge ok" id="offlineBadge">● Local &amp; offline</span>
+    <span class="badge">No uploads</span>
+  </div>
+</header>
+
+<div id="fileModeWarning" class="notice warn" hidden>
+  <strong>Opened as a local file.</strong> For automatic folder scanning and reliable in-app PDF viewing,
+  close this tab and double-click <code>START-HERE.bat</code> (Windows), <code>START-HERE.command</code>
+  (macOS) or <code>START-HERE.sh</code> (Linux) instead. You can still use <em>Choose a folder</em> below,
+  but some browsers block PDF workers on <code>file://</code> pages.
+</div>
+
+<main>
+  <section class="card" id="folderCard">
+    <h2><span class="step">1</span> Choose the folder with your QP PDFs</h2>
+    <p class="hint">Put the <code>QP-Page-Finder</code> folder inside the same folder as the PDFs you
+      downloaded. The app then scans that folder automatically. You can also pick any other folder.</p>
+
+    <div class="row">
+      <label for="folderPath" class="lbl">Folder path</label>
+      <input type="text" id="folderPath" spellcheck="false" placeholder="C:\IGCSE\Physics Papers">
+      <button id="btnRefresh" class="btn primary">List PDFs</button>
+    </div>
+    <div class="row wrap">
+      <button id="btnParent" class="btn ghost">Use parent folder (default)</button>
+      <button id="btnAppFolder" class="btn ghost">Use this app folder</button>
+      <label class="btn ghost filebtn">
+        Choose a different folder…
+        <input type="file" id="folderPicker" webkitdirectory directory multiple hidden>
+      </label>
+      <label class="check"><input type="checkbox" id="recursive"> Include subfolders</label>
+    </div>
+    <p class="hint small" id="folderStatus">Looking for PDFs…</p>
+
+    <div class="filelist-wrap">
+      <div class="filelist-head">
+        <span id="fileCount">0 PDFs</span>
+        <span class="linkbtns">
+          <button id="btnAll" class="link">Select all</button>
+          <button id="btnNone" class="link">Select none</button>
+        </span>
+      </div>
+      <div id="fileList" class="filelist" role="list"></div>
+    </div>
+  </section>
+
+  <section class="card" id="scanCard">
+    <h2><span class="step">2</span> Scan for basic-magnetism questions</h2>
+    <div class="row wrap">
+      <label class="check"><input type="checkbox" id="useOcr" checked> Use bundled offline OCR on scanned / image-only pages</label>
+      <label class="check"><input type="checkbox" id="showExcluded"> Show excluded electromagnetism questions (transparency)</label>
+    </div>
+    <div class="row wrap">
+      <button id="btnScan" class="btn primary big">Scan selected PDFs</button>
+      <button id="btnStop" class="btn ghost" disabled>Stop</button>
+      <span id="ocrBadge" class="badge muted">OCR engine: idle</span>
+    </div>
+    <div class="progress"><div id="progressBar" class="progress-inner"></div></div>
+    <p id="scanStatus" class="status">Ready. Nothing has been scanned yet.</p>
+    <p class="hint small">Topics covered: magnetic materials, magnetic poles, attraction &amp; repulsion,
+      induced &amp; permanent magnetism, magnetic fields &amp; field patterns, compass behaviour.
+      Questions <em>only</em> about motors, transformers, electromagnetic induction or other
+      electromagnetism are filtered out.</p>
+  </section>
+
+  <section class="card" id="resultsCard">
+    <h2><span class="step">3</span> Results</h2>
+    <div class="row wrap filters">
+      <label for="filter" class="lbl">Show</label>
+      <select id="filter">
+        <option value="all">All matches</option>
+        <option value="review">Needs review / uncertain</option>
+        <option value="unreviewed">Not yet reviewed</option>
+        <option value="relevant">Marked relevant</option>
+        <option value="notrelevant">Marked not relevant</option>
+      </select>
+      <span id="resultCount" class="badge muted">0 results</span>
+      <span class="spacer"></span>
+      <span id="excludedCount" class="badge muted">0 electromagnetism-only excluded</span>
+    </div>
+
+    <div class="tablewrap">
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th>PDF filename</th>
+            <th>Component</th>
+            <th>Question</th>
+            <th>PDF page(s)</th>
+            <th>Printed page</th>
+            <th>Matched topics (keywords only)</th>
+            <th>Status / review</th>
+            <th>Open</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+    <p id="emptyState" class="empty">No results yet. Choose PDFs above and press <strong>Scan selected PDFs</strong>.</p>
+    <p class="hint small">Question text is never displayed, copied, exported or sent anywhere. Click
+      <em>Open at page</em> to view the exact page in the built-in viewer; use <em>Open PDF at page</em>
+      as a fallback that opens the original file in your browser at that page. Your PDFs are only ever
+      opened read-only.</p>
+  </section>
+
+  <section class="card notes">
+    <h2>What this app does &amp; does not do</h2>
+    <div class="twocol">
+      <div>
+        <h3 class="good">Does</h3>
+        <ul>
+          <li>Read PDFs locally with bundled pdf.js text extraction</li>
+          <li>Use bundled offline OCR (Tesseract WebAssembly + English data) for scanned pages</li>
+          <li>Report filename, component, question number, physical PDF page/range and printed page when reliable</li>
+          <li>Flag uncertain matches and let you mark them relevant / not relevant</li>
+          <li>Open the original PDF at the matching page in a built-in viewer</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="bad">Does not</h3>
+        <ul>
+          <li>Upload, transmit or send your PDFs or their text anywhere</li>
+          <li>Bypass PDF passwords, encryption or access restrictions</li>
+          <li>Make screenshots, export pages, create or combine PDFs</li>
+          <li>Reproduce question text or produce answers / mark schemes</li>
+          <li>Modify your original PDFs in any way</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Built-in, view-only PDF viewer -->
+<div id="viewer" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <strong id="viewerTitle">PDF viewer</strong>
+        <div class="hint small" id="viewerSub">View only</div>
+      </div>
+      <button id="btnCloseViewer" class="btn ghost" aria-label="Close viewer">✕ Close</button>
+    </div>
+    <div class="viewer-tools">
+      <button id="btnPrev" class="btn ghost">← Previous</button>
+      <span id="viewerPage" class="badge">Page 1</span>
+      <button id="btnNext" class="btn ghost">Next →</button>
+      <span class="spacer"></span>
+      <span class="hint small">Read-only view. No screenshots or exports.</span>
+    </div>
+    <div id="viewerCanvasWrap" class="canvas-wrap">
+      <canvas id="viewerCanvas"></canvas>
+      <div id="viewerLoading" class="viewer-loading" hidden>Rendering page…</div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p><strong>QP Page Finder</strong> · runs entirely on this machine · pdf.js, Tesseract.js and all
+    language/core data are bundled locally · see <code>THIRD-PARTY-NOTICES.md</code>.</p>
+</footer>
+
+<script src="./vendor/pdf.min.js"></script>
+<script src="./vendor/tesseract.min.js"></script>
+<script src="./analyze.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
