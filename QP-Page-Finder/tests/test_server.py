@@ -115,6 +115,10 @@ def run_suite(label, cmd, port):
         check(label + ": bundled OCR data served locally", code == 200 and body[:2] == b"\x1f\x8b")
         code, hdr, body = get(base + "/vendor/core/tesseract-core-simd-lstm.wasm.js")
         check(label + ": bundled WASM core served locally", code == 200 and b"TesseractCore" in body[:400])
+        code, hdr, body = get(base + "/vendor/jspdf.umd.min.js")
+        check(label + ": bundled jsPDF served locally", code == 200 and len(body) > 200000 and b"jsPDF" in body[:600])
+        code, hdr, body = get(base + "/vendor/LICENSES/LICENSE-jspdf.txt")
+        check(label + ": bundled jsPDF licence served locally", code == 200 and b"MIT" in body[:1200])
 
         bad = base + "/api/pdf?dir=" + urllib.parse.quote(FIXTURES) + "&file=../../README.md"
         c, _ = error_body(bad)

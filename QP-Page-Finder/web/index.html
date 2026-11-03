@@ -12,8 +12,9 @@
   <div class="brand">
     <span class="logo" aria-hidden="true">⌕</span>
     <div>
-      <h1>QP Page Finder</h1>
-      <p>Find pages about <strong>basic magnetism</strong> in your Cambridge IGCSE Physics 0625 question papers</p>
+      <h1>QP Page Finder <span class="ver">v2</span></h1>
+      <p>Find pages about <strong>basic magnetism</strong> in your Cambridge IGCSE Physics 0625 question papers,
+        then build your own A4 PDF from the pages you approve.</p>
     </div>
   </div>
   <div class="badges">
@@ -76,14 +77,14 @@
     </div>
     <div class="progress"><div id="progressBar" class="progress-inner"></div></div>
     <p id="scanStatus" class="status">Ready. Nothing has been scanned yet.</p>
-    <p class="hint small">Topics covered: magnetic materials, magnetic poles, attraction &amp; repulsion,
-      induced &amp; permanent magnetism, magnetic fields &amp; field patterns, compass behaviour.
-      Questions <em>only</em> about motors, transformers, electromagnetic induction or other
-      electromagnetism are filtered out.</p>
+    <p class="hint small">Topics: magnetic materials, poles, attraction &amp; repulsion, induced &amp; permanent
+      magnetism, magnetic fields / field patterns, compass behaviour. Questions <em>only</em> about motors,
+      transformers, induction or other electromagnetism are filtered out. v2 matches phrases split across
+      lines and identifies printed page numbers by their <strong>position</strong> in the footer.</p>
   </section>
 
   <section class="card" id="resultsCard">
-    <h2><span class="step">3</span> Results</h2>
+    <h2><span class="step">3</span> Results &amp; review</h2>
     <div class="row wrap filters">
       <label for="filter" class="lbl">Show</label>
       <select id="filter">
@@ -109,17 +110,43 @@
             <th>Printed page</th>
             <th>Matched topics (keywords only)</th>
             <th>Status / review</th>
-            <th>Open</th>
+            <th>Open / capture</th>
           </tr>
         </thead>
         <tbody id="resultsBody"></tbody>
       </table>
     </div>
     <p id="emptyState" class="empty">No results yet. Choose PDFs above and press <strong>Scan selected PDFs</strong>.</p>
-    <p class="hint small">Question text is never displayed, copied, exported or sent anywhere. Click
-      <em>Open at page</em> to view the exact page in the built-in viewer; use <em>Open PDF at page</em>
-      as a fallback that opens the original file in your browser at that page. Your PDFs are only ever
-      opened read-only.</p>
+    <p class="hint small">The results table never shows question text. <strong>Printed page</strong> is detected
+      only from a bottom-centred footer number in the PDF and is shown separately from the physical
+      <strong>PDF page</strong> column, so a question number can no longer be mistaken for a printed page.
+      Click <em>Open at page</em> to view the exact page, or <em>Capture / align</em> to select a region for
+      your A4 PDF. Your original PDFs are only ever opened read-only.</p>
+  </section>
+
+  <section class="card" id="compileCard">
+    <h2><span class="step">4</span> Build your A4 PDF <span class="badge ok">NEW</span></h2>
+    <p class="hint">Mark a question <strong>✓ Relevant</strong> and the app automatically renders that PDF page
+      as a capture. You then <strong>manually align</strong> the crop rectangle (drag it, drag a corner, or
+      type percentages). When every question that needs checking has been checked and every confirmed
+      question has a capture, build the A4 PDF, review it in the preview, and only then approve the download.</p>
+
+    <div class="compile-grid">
+      <div class="cbox"><span class="cnum" id="cntConfirmed">0</span><span>confirmed questions</span></div>
+      <div class="cbox"><span class="cnum" id="cntCaptured">0</span><span>with captures</span></div>
+      <div class="cbox"><span class="cnum" id="cntPending">0</span><span>still to check</span></div>
+      <div class="cbox"><span class="cnum" id="cntSheets">0</span><span>A4 sheets ready</span></div>
+    </div>
+    <p id="compileStatus" class="status">Scan some PDFs and confirm a question to begin.</p>
+
+    <div class="row wrap">
+      <button id="btnBuild" class="btn primary big" disabled>Build A4 PDF (preview)</button>
+      <button id="btnMarkRest" class="btn ghost" disabled>Mark remaining unchecked as "not relevant"</button>
+      <button id="btnDownloadApproved" class="btn ghost" disabled hidden>Download approved A4 PDF again</button>
+      <label class="check"><input type="checkbox" id="includeFooter"> Add a small page reference footer to each sheet</label>
+    </div>
+    <p class="hint small">Nothing downloads automatically. The A4 PDF is a <strong>new file</strong> created
+      locally from the page regions you aligned; your original question-paper PDFs are never modified.</p>
   </section>
 
   <section class="card notes">
@@ -128,28 +155,28 @@
       <div>
         <h3 class="good">Does</h3>
         <ul>
-          <li>Read PDFs locally with bundled pdf.js text extraction</li>
-          <li>Use bundled offline OCR (Tesseract WebAssembly + English data) for scanned pages</li>
-          <li>Report filename, component, question number, physical PDF page/range and printed page when reliable</li>
+          <li>Read PDFs locally with bundled pdf.js text extraction plus offline OCR</li>
+          <li>Report filename, component, question number, physical PDF page/range and a position-verified printed page</li>
           <li>Flag uncertain matches and let you mark them relevant / not relevant</li>
           <li>Open the original PDF at the matching page in a built-in viewer</li>
+          <li><strong>NEW:</strong> auto-render a capture for each confirmed question, let you align the crop, compile an A4 PDF, preview it, and download it <em>after your approval</em></li>
         </ul>
       </div>
       <div>
         <h3 class="bad">Does not</h3>
         <ul>
-          <li>Upload, transmit or send your PDFs or their text anywhere</li>
+          <li>Upload, transmit or send your PDFs, their text or your captures anywhere</li>
           <li>Bypass PDF passwords, encryption or access restrictions</li>
-          <li>Make screenshots, export pages, create or combine PDFs</li>
-          <li>Reproduce question text or produce answers / mark schemes</li>
-          <li>Modify your original PDFs in any way</li>
+          <li>Modify, overwrite, split or combine your <em>original</em> PDFs (the A4 file is a brand-new PDF you create)</li>
+          <li>Show question text in the results table, or generate answers / mark schemes</li>
+          <li>Download anything without your explicit approval in the preview</li>
         </ul>
       </div>
     </div>
   </section>
 </main>
 
-<!-- Built-in, view-only PDF viewer -->
+<!-- Built-in, view-only PDF viewer (also used for the A4 preview) -->
 <div id="viewer" class="modal" hidden>
   <div class="modal-box">
     <div class="modal-head">
@@ -164,7 +191,16 @@
       <span id="viewerPage" class="badge">Page 1</span>
       <button id="btnNext" class="btn ghost">Next →</button>
       <span class="spacer"></span>
-      <span class="hint small">Read-only view. No screenshots or exports.</span>
+      <span class="hint small" id="viewerNote">Read-only view.</span>
+    </div>
+    <div id="approveBar" class="approve-bar" hidden>
+      <div>
+        <strong>Preview of your A4 PDF</strong>
+        <div class="hint small" id="approveSub">Check every sheet. It downloads only after you approve.</div>
+      </div>
+      <span class="spacer"></span>
+      <button id="btnBackToEdit" class="btn ghost">← Back to edit</button>
+      <button id="btnApproveDownload" class="btn primary">✓ Approve &amp; download A4 PDF</button>
     </div>
     <div id="viewerCanvasWrap" class="canvas-wrap">
       <canvas id="viewerCanvas"></canvas>
@@ -173,13 +209,63 @@
   </div>
 </div>
 
+<!-- Crop / alignment editor -->
+<div id="cropModal" class="modal" hidden>
+  <div class="modal-box crop-box">
+    <div class="modal-head">
+      <div>
+        <strong id="cropTitle">Align the capture</strong>
+        <div class="hint small" id="cropSub">Drag the box, drag a corner handle, or type percentages.</div>
+      </div>
+      <button id="btnCancelCropTop" class="btn ghost" aria-label="Close">✕</button>
+    </div>
+    <div class="crop-tools">
+      <label class="lbl" for="cropPageSelect">PDF page</label>
+      <select id="cropPageSelect"></select>
+      <button id="btnAutoCrop" class="btn ghost">Auto-select question region</button>
+      <button id="btnFullPage" class="btn ghost">Full page</button>
+      <span class="spacer"></span>
+      <span class="badge muted" id="cropPageInfo">Page 1</span>
+    </div>
+    <div class="crop-body">
+      <div class="crop-stage-wrap">
+        <div id="cropStage" class="crop-stage">
+          <canvas id="cropCanvas"></canvas>
+          <div id="cropRect" class="crop-rect">
+            <i class="h nw" data-h="nw"></i><i class="h ne" data-h="ne"></i>
+            <i class="h sw" data-h="sw"></i><i class="h se" data-h="se"></i>
+            <span class="crop-label">drag to align</span>
+          </div>
+        </div>
+      </div>
+      <div class="crop-side">
+        <p class="hint small">Crop box (% of page). The same box is used for each page of a question that
+          continues across pages; you can adjust each page separately.</p>
+        <div class="numgrid">
+          <label>Left %<input type="number" id="cropL" min="0" max="99" step="1"></label>
+          <label>Top %<input type="number" id="cropT" min="0" max="99" step="1"></label>
+          <label>Right %<input type="number" id="cropR" min="1" max="100" step="1"></label>
+          <label>Bottom %<input type="number" id="cropB" min="1" max="100" step="1"></label>
+        </div>
+        <p class="hint small" id="cropHintText"></p>
+        <div class="crop-actions">
+          <button id="btnSaveCrops" class="btn primary">Save capture(s)</button>
+          <button id="btnUseFullPage" class="btn ghost">Use full page (skip aligning)</button>
+          <button id="btnCancelCrop" class="btn ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <footer>
-  <p><strong>QP Page Finder</strong> · runs entirely on this machine · pdf.js, Tesseract.js and all
-    language/core data are bundled locally · see <code>THIRD-PARTY-NOTICES.md</code>.</p>
+  <p><strong>QP Page Finder v2</strong> · runs entirely on this machine · pdf.js, Tesseract.js, jsPDF and all
+    OCR/font data are bundled locally · see <code>THIRD-PARTY-NOTICES.md</code>.</p>
 </footer>
 
 <script src="./vendor/pdf.min.js"></script>
 <script src="./vendor/tesseract.min.js"></script>
+<script src="./vendor/jspdf.umd.min.js"></script>
 <script src="./analyze.js"></script>
 <script src="./app.js"></script>
 </body>

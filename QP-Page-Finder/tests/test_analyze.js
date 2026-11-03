@@ -207,4 +207,91 @@ test('analyzeDocument: motor/transformer questions are separated as excluded', (
   assert.strictEqual(r.hits.filter(h => h.bucket === 'match').length, 0);
 });
 
+/* ---------- v2: accuracy improvements ---------- */
+test('normalizeText: joins hyphenated line breaks and multi-line phrases', () => {
+  assert.strictEqual(A.normalizeText('a mag-\nnetic field'), 'a magnetic field');
+  assert.strictEqual(A.normalizeText('a permanent\nmagnet and a\ncompass'), 'a permanent magnet and a compass');
+});
+test('classify: finds a phrase split across extracted lines', () => {
+  const r = A.classify('The student draws the\nmagnetic field\npattern near a bar magnet.');
+  assert.strictEqual(r.bucket, 'match');
+  assert.ok(r.anchors.includes('magnetic field pattern'));
+  assert.ok(r.anchors.includes('bar / horseshoe magnet'));
+});
+test('classify: term families deduplicate overlapping phrases', () => {
+  const r = A.classify('Use a plotting compass to find the compass direction near the compass needle.');
+  assert.strictEqual(r.anchorFamilies.length, 1, 'compass / plotting compass / compass needle = 1 family');
+  assert.strictEqual(r.score >= 3, true);
+});
+test('classify: new basic-magnetism vocabulary is recognised', () => {
+  const r = A.classify('State whether the materials are magnetic or non-magnetic. Describe the field lines and the neutral point.');
+  assert.strictEqual(r.bucket, 'match');
+  assert.ok(r.anchors.includes('magnetic material'));
+  assert.ok(r.anchors.includes('field pattern'));
+  assert.ok(r.anchors.includes('neutral point'));
+});
+test('classify: "electromagnetic spectrum" is still excluded', () => {
+  const r = A.classify('Which electromagnetic spectrum wave has the shortest wavelength?');
+  assert.strictEqual(r.bucket, 'excluded');
+  assert.strictEqual(r.anchors.length, 0);
+});
+
+/* ---------- v2: printed page vs question number bug ---------- */
+test('printedPageFromItems: centred footer number accepted, left-margin number rejected', () => {
+  const W = 595, H = 842;
+  assert.strictEqual(A.printedPageFromItems([{ text: '7', x: 290, y: 28, w: 8, h: 10 }], W, H), 7);
+  assert.strictEqual(A.printedPageFromItems([{ text: '7', x: 50, y: 700, w: 8, h: 10 }], W, H), null);
+  assert.strictEqual(A.printedPageFromItems([{ text: '7', x: 290, y: 700, w: 8, h: 10 }], W, H), null);
+  assert.strictEqual(A.printedPageFromItems([{ text: 'Page 7', x: 270, y: 30, w: 40, h: 10 }], W, H), 7);
+});
+test('printedPageCandidate: NEVER reuses a question number as a printed page', () => {
+  assert.strictEqual(A.printedPageCandidate(['2 A student has a bar magnet.', '2'], [2]), null);
+  assert.strictEqual(A.printedPageCandidate(['2 A student has a bar magnet.', '7'], [2]), 7);
+});
+test('detectQuestions: centred numbers are rejected when line positions are known', () => {
+  const lines = ['1 A compass is near a bar magnet.', '7', '2 State the field pattern.'];
+  const meta = [{ x: 50 }, { x: 290 }, { x: 50 }];
+  const r = A.detectQuestions(lines, 0, meta, 595);
+  assert.deepStrictEqual(r.markers.map(m => m.number), [1, 2]);
+});
+test('resolvePrintedPages: ignores a candidate equal to a question number unless positional', () => {
+  const pages = [1, 2, 3, 4].map(n => ({
+    pdfPage: n, printedCandidate: n, printedPositional: false, questionNumbers: [n]
+  }));
+  assert.strictEqual(A.resolvePrintedPages(pages).reliable, false);
+  const positional = pages.map(p => Object.assign({}, p, { printedPositional: true }));
+  assert.strictEqual(A.resolvePrintedPages(positional).reliable, true);
+});
+test('analyzeDocument: printed page CAN equal question number when positionally confirmed', () => {
+  const W = 595, H = 842;
+  const mk = (n, lines) => ({
+    pdfPage: n, lines, text: lines.join('\n'),
+    printedCandidate: n, printedPositional: true,
+    lineMeta: lines.map(() => ({ x: 50, y: 700 })), pageWidth: W, pageHeight: H
+  });
+  const pages = [
+    mk(1, ['INSTRUCTIONS', 'Answer all questions.', '1']),
+    mk(2, ['1 A compass is placed near a bar magnet.', 'State the magnetic field pattern.', '2']),
+    mk(3, ['2 Explain like poles repel and unlike poles attract.', '3'])
+  ];
+  const r = A.analyzeDocument(pages, { filename: '0625_w25_qp_41.pdf' });
+  assert.strictEqual(r.printedReliable, true);
+  const q1 = r.hits.find(h => h.question === 1 && h.bucket !== 'excluded');
+  assert.ok(q1);
+  assert.strictEqual(q1.printedLabel, '2', 'positional footer value retained, not suppressed');
+  assert.strictEqual(q1.printedPositional, true);
+});
+test('analyzeDocument: cropHint line range is emitted for the capture editor', () => {
+  const pages = [
+    { pdfPage: 1, lines: ['INSTRUCTIONS', '1'], text: 'INSTRUCTIONS\n1', printedCandidate: null },
+    { pdfPage: 2, lines: ['1 A compass is near a bar magnet.', 'State the field pattern.', '2'], text: 'x', printedCandidate: null },
+    { pdfPage: 3, lines: ['2 Describe magnetic poles.', '3'], text: 'x', printedCandidate: null }
+  ];
+  const r = A.analyzeDocument(pages, { filename: 'x.pdf' });
+  const hit = r.hits.find(h => h.bucket !== 'excluded');
+  assert.ok(hit && hit.cropHint);
+  assert.strictEqual(typeof hit.cropHint.startLine, 'number');
+  assert.ok(hit.cropHint.endLine >= hit.cropHint.startLine);
+});
+
 console.log('\n' + passed + ' assertions groups passed.');

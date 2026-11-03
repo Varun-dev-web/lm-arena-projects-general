@@ -1,14 +1,19 @@
-# QP Page Finder — basic magnetism pages in Cambridge IGCSE Physics 0625 QPs
+# QP Page Finder v2 — basic magnetism pages in Cambridge IGCSE Physics 0625 QPs
 
 A small, **portable, offline** local web app that scans the folder of question-paper
 PDFs you downloaded and tells you which **physical PDF page** contains questions
 about *simple phenomena of magnetism* (magnetic materials, poles, attraction and
 repulsion, induced/permanent magnetism, magnetic fields and field patterns,
-compass behaviour). It then opens the original PDF at that page in a built-in viewer.
+compass behaviour). It opens the original PDF at that page in a built-in viewer.
 
-It does **not** download, reproduce, summarise, screenshot, export, combine or
-modify any paper. It does not produce answers or mark schemes. It does not upload
-anything anywhere. It does not bypass PDF passwords or access restrictions.
+**New in v2:** when you confirm a question, the app automatically renders a
+capture of that PDF page, lets you **manually align the crop**, and adds each
+approved capture as an **A4-sized page** to one new PDF. You review the whole A4
+PDF in a preview, and it downloads **only after you click "Approve & download"**.
+
+It does **not** produce answers or mark schemes, does not upload anything, does
+not bypass PDF passwords/access restrictions, and does **not modify your original
+PDFs** (the A4 file is a brand-new PDF created from the regions you selected).
 
 ---
 
@@ -45,8 +50,8 @@ That's it. No `npm install`, no `pip install`, no internet connection needed.
 The launcher needs **either Python 3.8+ or Node.js 16+** already installed — both
 are free and very common. It tries Python 3 (`py -3`, then `python`), then Node.js.
 If neither is found, it prints instructions. Everything else — the PDF engine,
-the OCR engine, the OCR language data and all fonts — is already bundled in
-`web/vendor/`.
+the OCR engine, the OCR language data, the PDF-writing library and all fonts — is
+already bundled in `web/vendor/`.
 
 * No Python? Install from <https://www.python.org/downloads/> (tick **Add Python
   to PATH** during setup) and double-click `START-HERE.bat` again.
@@ -94,25 +99,72 @@ Double-click `START-HERE.command` (macOS) or run `./START-HERE.sh` (Linux), or r
 | Component | e.g. `0625/41 (Paper 4, variant 1)`, read from the filename or the printed header |
 | Question | Question number when it can be identified; otherwise "Not identifiable" |
 | PDF page(s) | **Exact physical page number** in the PDF; a range such as `4-5` means the question continues across pages |
-| Printed page | The number printed on the page, **only when** a consistent printed-page sequence can be identified; `—` otherwise |
-| Matched topics | Keyword *labels* only — question text is never shown |
-| Status / review | Confidence, uncertainty reasons, and **✓ Relevant / ✕ Not relevant** buttons |
-| Open | **Open at page** (built-in viewer), **Open PDF at page** (original file in your browser at `#page=N`), **Copy page reference** |
+| Printed page | The number printed on the page. In v2 this is read from the **position** of a bottom-centred footer number; a plain question number is never reused as a printed page. `—` when not verifiable |
+| Matched topics | Keyword *labels* only — question text is never shown in the table |
+| Status / review | Confidence, uncertainty reasons, capture progress, and **✓ Relevant / ✕ Not relevant** buttons |
+| Open / capture | **Open at page** (built-in viewer), **Open PDF at page** (original file at `#page=N`), **Capture / align** |
 
 **Uncertain matches** are clearly marked in amber with a reason (OCR-derived text,
 no identifiable question number, possible cross-page continuation, only one
-magnetism keyword, or mixed electromagnetism wording). Use the review buttons to
-accept or reject them; the choice is stored only in this browser's local storage.
-Use the **Show** filter to list only matches that need review.
+magnetism keyword family, or mixed electromagnetism wording). Use the review
+buttons to accept or reject them; the choice is stored only in this browser's
+local storage.
 
 ### Opening a page
 
 * **Open at page N (in-app)** opens the built-in viewer at exactly that physical
-  PDF page. Use ← / → or the arrow keys to move around. It is view-only: there is
-  no download, screenshot or export button.
+  PDF page. Use ← / → or the arrow keys to move around. It is view-only.
 * **Open PDF at page N ↗** is the reliable fallback: it opens the original PDF in
   your browser's own PDF viewer with `#page=N`. Most browsers honour that fragment.
-  The exact page number is always printed in the row, so you can also jump manually.
+
+### Step 4 — Build your A4 PDF
+
+1. Mark a question **✓ Relevant**. The app immediately renders that PDF page (or
+   each page of a cross-page range) as an automatic capture and opens the
+   **alignment editor**.
+2. **Align the crop manually.** Drag the red box to move it, drag a corner handle
+   to resize it, drag on the page to draw a new box, or type Left/Top/Right/Bottom
+   percentages. **Auto-select question region** uses the detected line positions
+   to suggest a box around the question; **Full page** selects everything. For a
+   question spanning several pages, switch pages with the **PDF page** dropdown —
+   each page has its own crop box.
+3. Press **Save capture(s)** (or **Use full page (skip aligning)**). Each saved
+   capture becomes one A4 sheet. The row shows how many captures it has.
+4. Check **every question that needs checking**. The compile panel counts
+   confirmed questions, captures, questions still to check, and A4 sheets ready.
+   **Mark remaining unchecked as "not relevant"** is available as a shortcut, but
+   it is your decision — the app never decides for you.
+5. Press **Build A4 PDF (preview)**. Nothing downloads at this point. The new PDF
+   is built locally with the bundled jsPDF library; each capture is fitted onto a
+   portrait A4 page. Optionally tick **Add a small page reference footer**.
+6. **Review the preview** in the built-in viewer (use Previous / Next for every
+   sheet). The header says *not downloaded yet*.
+7. Press **✓ Approve & download A4 PDF**. Only now does the browser download
+   `QP-Magnetism-A4.pdf`. A **Download approved A4 PDF again** button appears.
+
+**Nothing is downloaded automatically at any other point.** The A4 PDF is a new
+file; original question-paper PDFs are never modified, split or combined. If you
+change a review, a crop or the footer setting, the previous preview is discarded
+and you must build and approve again.
+
+> Captures are held in the browser tab's memory. If you **reload or close the tab**,
+> re-scan the PDFs and re-save the captures (review marks persist in local storage,
+> but the page images do not).
+
+### Accuracy improvements in v2
+
+* Phrases split across extracted lines (e.g. `magnetic field` / `pattern`) are
+  joined before matching, so a line break no longer hides a topic.
+* Keyword **families** deduplicate overlapping phrases (e.g. "compass",
+  "plotting compass", "compass needle" count as one concept), with a weighted
+  confidence score and richer uncertainty reasons.
+* Question numbers are required to be in the **left margin**, using pdf.js item
+  coordinates, so centred figure numbers are not mistaken for questions.
+* **Printed page numbers** come only from **bottom-centred footer** items. A text
+  fallback passes the detected question numbers as a banned list, and a final
+  guard suppresses any unconfirmed printed number that equals the question
+  number. This fixes the v1 bug where the printed-page column could show the
+  question number.
 
 ### Behaviour you should know about
 
@@ -121,7 +173,7 @@ Use the **Show** filter to list only matches that need review.
 * **Scanned pages** are detected and OCR'd locally; OCR results are always flagged
   "uncertain" so you can confirm them in the viewer.
 * **Questions continuing across pages** are merged into a page range and flagged
-  for review.
+  for review; each page in the range gets its own A4 sheet.
 * PDFs are opened **read-only**. The server never writes a file. Verify with the
   file timestamps/hashes — see `TESTING-REPORT.md` for the tests we ran.
 
@@ -132,9 +184,13 @@ Use the **Show** filter to list only matches that need review.
 * The server binds to **127.0.0.1 only** and serves files from your own disk.
 * A Content-Security-Policy restricts connections to `'self'` (the localhost
   server) and blocks any external network request. All scripts, workers, WASM,
-  fonts and OCR language data are loaded from `web/vendor/` inside this folder.
+  fonts, the PDF-writing library and OCR language data are loaded from
+  `web/vendor/` inside this folder.
 * No analytics, telemetry, CDN, fonts from Google, or remote APIs.
 * No caching of PDF content, no writing to disk, no logging of PDF text.
+* The A4 PDF is generated **in your browser** from canvas images of pages you
+  selected, and the download is a browser `Blob` URL. Nothing is uploaded. The
+  only file the app ever offers to save is the A4 PDF you explicitly approved.
 
 You can verify this yourself: disconnect from the internet and the app still works.
 
@@ -154,11 +210,13 @@ QP-Page-Finder/
 ├── TESTING-REPORT.md       <- what was actually tested and how
 ├── web/
 │   ├── index.html, style.css
-│   ├── analyze.js          <- topic classification, question/printed-page detection
-│   ├── app.js              <- PDF extraction, OCR, results, viewer
+│   ├── analyze.js          <- v2 positional analysis, term families, crop hints
+│   ├── app.js              <- PDF extraction, OCR, results, capture/alignment,
+│   │                          A4 build, preview, approval, download
 │   └── vendor/             <- ALL offline dependencies (pdf.js, Tesseract.js,
-│                              WASM cores, English traineddata, fonts, licences)
-└── tests/                  <- synthetic test PDFs generator + test scripts
+│                              WASM cores, English traineddata, jsPDF, fonts,
+│                              licences)
+└── tests/                  <- synthetic test PDF generator + test scripts
 ```
 
 ---
@@ -173,6 +231,10 @@ QP-Page-Finder/
 | A PDF is skipped | It is password-protected/encrypted or corrupt. This app does not bypass PDF security |
 | OCR engine unavailable | Check `web/vendor/core/`, `web/vendor/lang/eng.traineddata.gz` and `web/vendor/worker.min.js` are present. The app still works with text-only PDFs |
 | A relevant question is missing | Turn on **Show excluded electromagnetism questions**, check the **Needs review** filter, and see "Limitations" in `TESTING-REPORT.md` |
+| Printed page shows `—` | No bottom-centred footer number could be verified. Use the **PDF page** column |
+| **Build A4 PDF (preview)** stays disabled | Check every uncertain question and save a capture for every confirmed question (see the counters in step 4) |
+| Capture editor says "Re-scan …" | You reloaded the tab; page images are memory-only. Re-scan and re-save |
+| Alignment editor is blank | Wait for "Rendering PDF page …" to finish; very large scanned pages take longer |
 | Opened `web/index.html` directly by double-click | Use the launcher instead — browsers block PDF workers on `file://` pages |
 
 ---

@@ -1,13 +1,17 @@
-/* QP Page Finder - analysis engine
+/* QP Page Finder - analysis engine (v2)
  * Pure, dependency-free JavaScript. Works in the browser (window.QPAnalyze)
- * and in Node (require). It never sees or emits question text: it only emits
- * filenames, component labels, question numbers, page numbers and keyword labels.
+ * and in Node (require).
  *
- * Scope: "simple phenomena of magnetism" in Cambridge IGCSE Physics 0625
- * (magnetic materials, poles, attraction/repulsion, induced & permanent
- * magnetism, magnetic fields/field patterns, compass behaviour). Questions
- * that are ONLY about motors, transformers, electromagnetic induction or
- * other electromagnetism are separated out.
+ * v2 improvements:
+ *  - Multi-line phrase normalisation ("mag-" + "netic", "magnetic\\nfield").
+ *  - Term families so overlapping phrases are not double-counted.
+ *  - POSITIONAL printed-page detection: footer numbers are identified by their
+ *    physical position (bottom, horizontally centred). A bare number in the
+ *    left margin is a QUESTION number and can never become a printed page.
+ *    This fixes the "printed page = question number" bug.
+ *  - POSITIONAL question-number detection (left-margin numbers only).
+ *  - Weighted confidence scoring and richer uncertainty reasons.
+ *  - Crop hints (line ranges) used by the A4 capture editor.
  */
 (function (root, factory) {
   'use strict';
@@ -18,77 +22,103 @@
   'use strict';
 
   /* ------------------------------------------------------------------ *
-   * 1. Vocabulary
+   * 0. Text normalisation
+   * ------------------------------------------------------------------ */
+
+  // PDF text extraction frequently splits a phrase across lines. Join lines
+  // before matching so "magnetic\nfield" and "per-\nmanent magnet" are found.
+  function normalizeText(text) {
+    return String(text || '')
+      .replace(/([A-Za-z])-\s*\n\s*([A-Za-z])/g, '$1$2')  // hyphenated line break
+      .replace(/\s*\r?\n\s*/g, ' ')                         // join lines with a space
+      .replace(/[\t ]+/g, ' ')
+      .trim();
+  }
+
+  function unique(arr) {
+    var out = [], seen = {};
+    for (var i = 0; i < arr.length; i++) {
+      if (!seen[arr[i]]) { seen[arr[i]] = true; out.push(arr[i]); }
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 1. Vocabulary (id, family, regex)
    * ------------------------------------------------------------------ */
 
   // "Anchors": phrases that specifically belong to BASIC magnetism.
   var ANCHORS = [
-    { id: 'compass', re: /\bcompass(?:es)?\b/i },
-    { id: 'plotting compass', re: /\bplotting compass\b/i },
-    { id: 'permanent magnet', re: /\bpermanent magnet(?:s)?\b/i },
-    { id: 'induced magnetism', re: /\binduced magnet\w*\b/i },
-    { id: 'magnetisation', re: /\bd?emagnetis(?:e|ed|es|ing|ation)\b|\bd?emagnetiz(?:e|ed|es|ing|ation)\b/i },
-    { id: 'magnetic material', re: /\bmagnetic material(?:s)?\b/i },
-    { id: 'magnetic poles', re: /\bmagnetic pole(?:s)?\b/i },
-    { id: 'north / south pole', re: /\b(?:north|south)[ -]?(?:seeking )?pole(?:s)?\b/i },
-    { id: 'N / S pole', re: /\b[NS][ -]?pole(?:s)?\b/ },
-    { id: 'north-seeking', re: /\bnorth[- ]seeking\b/i },
-    { id: 'like / unlike poles', re: /\b(?:like|unlike|opposite|same) poles\b/i },
-    { id: 'bar / horseshoe magnet', re: /\b(?:bar|horseshoe|u[- ]shaped) magnet(?:s)?\b/i },
-    { id: 'magnetic field pattern', re: /\bmagnetic field (?:pattern|lines?)\b/i },
-    { id: 'field pattern', re: /\bfield (?:pattern|lines?)\b/i },
-    { id: 'ferromagnetic', re: /\bferromagnetic\b|\bferrous material\b/i },
-    { id: 'magnetic shielding', re: /\bmagnetic shielding\b/i }
+    { id: 'compass', family: 'compass', re: /\bcompass(?:es)?\b/i },
+    { id: 'plotting compass', family: 'compass', re: /\bplotting compass\b/i },
+    { id: 'compass needle', family: 'compass', re: /\bcompass needle\b/i },
+    { id: 'permanent magnet', family: 'permanent', re: /\bpermanent magnet(?:s)?\b/i },
+    { id: 'induced magnetism', family: 'induced', re: /\binduced magnet\w*\b/i },
+    { id: 'magnetisation', family: 'magnetisation', re: /\bd?emagnetis(?:e|ed|es|ing|ation)\b|\bd?emagnetiz(?:e|ed|es|ing|ation)\b/i },
+    { id: 'magnetic material', family: 'material', re: /\b(?:non[- ])?magnetic material(?:s)?\b/i },
+    { id: 'non-magnetic', family: 'material', re: /\bnon[- ]magnetic\b/i },
+    { id: 'magnetic poles', family: 'poles', re: /\bmagnetic pole(?:s)?\b/i },
+    { id: 'north / south pole', family: 'poles', re: /\b(?:north|south)[ -]?(?:seeking )?pole(?:s)?\b/i },
+    { id: 'N / S pole', family: 'poles', re: /\b[NS][ -]?pole(?:s)?\b/i },
+    { id: 'north-seeking', family: 'poles', re: /\bnorth[- ]seeking\b/i },
+    { id: 'like / unlike poles', family: 'poles', re: /\b(?:like|unlike|opposite|same) poles\b/i },
+    { id: 'pole attraction / repulsion', family: 'poles', re: /\b(?:attraction|repulsion) (?:between|of) (?:magnet|pole)s?\b/i },
+    { id: 'bar / horseshoe magnet', family: 'magnet', re: /\b(?:bar|horseshoe|u[- ]shaped) magnet(?:s)?\b/i },
+    { id: 'magnetic field pattern', family: 'field', re: /\bmagnetic field (?:pattern|lines?)\b/i },
+    { id: 'field pattern', family: 'field', re: /\bfield (?:pattern|lines?)\b/i },
+    { id: 'neutral point', family: 'field', re: /\bneutral point\b/i },
+    { id: 'magnetic shielding', family: 'field', re: /\bmagnetic shielding\b/i },
+    { id: 'ferromagnetic', family: 'material', re: /\bferromagnetic\b|\bferrous material(?:s)?\b/i },
+    { id: 'suspended magnet', family: 'compass', re: /\b(?:freely )?suspended magnet\b/i }
   ];
 
   // Generic magnetism wording - not enough on its own.
   var WEAK = [
-    { id: 'magnet', re: /\bmagnet(?:s)?\b/i },
-    { id: 'magnetism', re: /\bmagnetism\b/i },
-    { id: 'magnetic', re: /\bmagnetic\b/i },
-    { id: 'magnetic field', re: /\bmagnetic field(?:s)?\b/i },
-    { id: 'poles', re: /\bpole(?:s)?\b/i },
-    { id: 'attraction / repulsion', re: /\battract(?:s|ed|ing|ion)?\b|\brepel(?:s|ed|ing|lent)?\b|\brepulsion\b/i },
-    { id: 'iron / steel / cobalt / nickel', re: /\b(?:soft iron|iron|steel|cobalt|nickel)\b/i },
-    { id: 'suspended / freely rotating', re: /\bfreely (?:suspended|rotating|pivoted)\b|\bsuspended (?:magnet|bar|needle)\b/i },
-    { id: 'magnetising by stroking', re: /\bstrok(?:e|ing)\b/i }
+    { id: 'magnet', family: 'magnet', re: /\bmagnet(?:s)?\b/i },
+    { id: 'magnetism', family: 'magnetism', re: /\bmagnetism\b/i },
+    { id: 'magnetic', family: 'magnetic', re: /\bmagnetic\b/i },
+    { id: 'magnetic field', family: 'field', re: /\bmagnetic field(?:s)?\b/i },
+    { id: 'poles', family: 'poles', re: /\bpole(?:s)?\b/i },
+    { id: 'attraction / repulsion', family: 'force', re: /\battract(?:s|ed|ing|ion)?\b|\brepel(?:s|ed|ing|lent)?\b|\brepulsion\b/i },
+    { id: 'iron / steel / cobalt / nickel', family: 'material', re: /\b(?:soft iron|iron|steel|cobalt|nickel)\b/i },
+    { id: 'suspended / freely rotating', family: 'compass', re: /\bfreely (?:suspended|rotating|pivoted)\b|\bsuspended (?:magnet|bar|needle)\b/i },
+    { id: 'magnetising by stroking', family: 'magnetisation', re: /\bstrok(?:e|ing)\b/i }
   ];
 
   // Electromagnetism-only markers. Used to filter out questions that are
   // solely about motors, transformers, induction, coils etc.
   var EM = [
-    { id: 'motor', re: /\b(?:d\.?c\.? |electric |simple )?motor(?:s)?\b/i },
-    { id: 'transformer', re: /\btransformer(?:s)?\b/i },
-    { id: 'generator', re: /\bgenerator(?:s)?\b|\bdynamo\b/i },
-    { id: 'electromagnetic induction', re: /\belectromagnetic induction\b|\binduced (?:e\.?m\.?f\.?|current|voltage)\b|\bfaraday\b|\blenz\b/i },
-    { id: 'coil / solenoid', re: /\bcoil(?:s)?\b|\bsolenoid(?:s)?\b|\bturns?\b/i },
-    { id: 'electromagnet', re: /\belectromagnet(?:s|ic|ism)?\b/i },
-    { id: 'current-carrying conductor', re: /\bcurrent[- ]carrying\b|\bcurrent in (?:a|the) (?:wire|conductor|coil)\b|\bright[- ]hand (?:grip|rule)\b/i },
-    { id: 'Fleming rule', re: /\bfleming\b|\bleft[- ]hand rule\b/i },
-    { id: 'primary / secondary coil', re: /\bprimary (?:coil|winding)\b|\bsecondary (?:coil|winding)\b|\bstep[- ](?:up|down)\b/i },
-    { id: 'e.m.f. / flux linkage', re: /\be\.?m\.?f\.?\b|\bflux linkage\b|\bmagnetic flux\b/i },
-    { id: 'galvanometer / induced current', re: /\bgalvanometer\b|\binduced current\b/i }
+    { id: 'motor', family: 'motor', re: /\b(?:d\.?c\.? |electric |simple )?motor(?:s)?\b/i },
+    { id: 'transformer', family: 'transformer', re: /\btransformer(?:s)?\b/i },
+    { id: 'generator', family: 'generator', re: /\bgenerator(?:s)?\b|\bdynamo\b/i },
+    { id: 'electromagnetic induction', family: 'induction', re: /\belectromagnetic induction\b|\binduced (?:e\.?m\.?f\.?|current|voltage)\b|\bfaraday\b|\blenz\b/i },
+    { id: 'coil / solenoid', family: 'coil', re: /\bcoil(?:s)?\b|\bsolenoid(?:s)?\b|\bturns?\b/i },
+    { id: 'electromagnet', family: 'electromagnet', re: /\belectromagnet(?:s|ic|ism)?\b/i },
+    { id: 'current-carrying conductor', family: 'current', re: /\bcurrent[- ]carrying\b|\bcurrent in (?:a|the) (?:wire|conductor|coil)\b|\bright[- ]hand (?:grip|rule)\b/i },
+    { id: 'Fleming rule', family: 'motor', re: /\bfleming\b|\bleft[- ]hand rule\b/i },
+    { id: 'primary / secondary coil', family: 'transformer', re: /\bprimary (?:coil|winding)\b|\bsecondary (?:coil|winding)\b|\bstep[- ](?:up|down)\b/i },
+    { id: 'e.m.f. / flux linkage', family: 'induction', re: /\be\.?m\.?f\.?\b|\bflux linkage\b|\bmagnetic flux\b/i },
+    { id: 'galvanometer / induced current', family: 'induction', re: /\bgalvanometer\b|\binduced current\b/i },
+    { id: 'electromagnetic spectrum', family: 'spectrum', re: /\belectromagnetic (?:spectrum|wave|radiation)\b/i },
+    { id: 'force on a conductor', family: 'force', re: /\bforce on (?:a|the) (?:wire|conductor|coil)\b/i }
   ];
 
   // Lines beginning with "<number> <unit>" are physical quantities, not question numbers.
-  // Only unambiguous multi-character units are listed (single-letter units such
-  // as "A" in "1 A student..." must NOT reject a genuine question line).
   var UNIT_LINE = /^\d{1,3}\s*(?:kN|cm|mm|km|kg|mg|ms|min|mV|mA|kW|kJ|kPa|Hz|Pa|ohms?|m\/s|cm3|m3|°C)\b/i;
   var FIGURE_LINE = /^(?:fig|figure|table|diagram|graph)\b/i;
 
-  function matchIds(text, list) {
-    var ids = [];
+  function matchTerms(text, list) {
+    var ids = [], fams = [];
     for (var i = 0; i < list.length; i++) {
-      if (list[i].re.test(text)) ids.push(list[i].id);
+      if (list[i].re.test(text)) { ids.push(list[i].id); fams.push(list[i].family || list[i].id); }
     }
-    return ids;
+    return { ids: ids, families: unique(fams) };
   }
 
   /* ------------------------------------------------------------------ *
    * 2. Filename / component parsing
    * ------------------------------------------------------------------ */
 
-  // Cambridge IGCSE 0625: components 41/42/43 = Paper 4 (Theory, Extended) variants 1/2/3.
   var COMPONENT_LABELS = {
     '41': '0625/41 (Paper 4, variant 1)',
     '42': '0625/42 (Paper 4, variant 2)',
@@ -98,13 +128,8 @@
   function parseFilename(name) {
     var base = String(name || '');
     var result = {
-      filename: base,
-      syllabus: null,
-      year: null,
-      session: null,
-      component: null,
-      componentLabel: 'Not identifiable',
-      docType: null
+      filename: base, syllabus: null, year: null, session: null,
+      component: null, componentLabel: 'Not identifiable', docType: null
     };
     var m = /\b(\d{4})\s*[_\-. ]\s*([wsm])\s*(\d{2})\s*[_\-. ]\s*(qp|ms|gt|er|ci|in|sp)\s*[_\-. ]\s*(\d{2})\b/i.exec(base);
     if (m) {
@@ -116,34 +141,27 @@
       result.componentLabel = COMPONENT_LABELS[m[5]] || ('0625/' + m[5]);
       return result;
     }
-    // Fallback: "0625_w25_qp_41" without separators, or "0625/41"
     var m2 = /\b0625\s*[_\-. ]?\s*[wsm]\d{2}\s*[_\-. ]?\s*qp\s*[_\-. ]?\s*(\d{2})\b/i.exec(base);
     if (m2) {
-      result.syllabus = '0625';
-      result.component = m2[1];
+      result.syllabus = '0625'; result.component = m2[1]; result.docType = 'qp';
       result.componentLabel = COMPONENT_LABELS[m2[1]] || ('0625/' + m2[1]);
-      result.docType = 'qp';
       return result;
     }
     var m3 = /\b0625\s*[/_\-.]\s*(4[123])\b/.exec(base);
     if (m3) {
-      result.syllabus = '0625';
-      result.component = m3[1];
+      result.syllabus = '0625'; result.component = m3[1];
       result.componentLabel = COMPONENT_LABELS[m3[1]];
       return result;
     }
-    // Last resort: any 4x component token near "qp"
     var m4 = /\bqp[_ .\-]?(4[123])\b|\b(4[123])[_ .\-]?qp\b/i.exec(base);
     if (m4) {
-      result.syllabus = '0625';
-      result.component = m4[1] || m4[2];
+      result.syllabus = '0625'; result.component = m4[1] || m4[2];
       result.componentLabel = COMPONENT_LABELS[result.component];
       return result;
     }
     return result;
   }
 
-  // Look for the component code printed in the page header, e.g. 0625/41/O/N/25.
   function componentFromText(pages) {
     for (var i = 0; i < Math.min(pages.length, 4); i++) {
       var t = (pages[i].text || '').replace(/\s+/g, '');
@@ -161,11 +179,9 @@
     var t = String(line || '').trim();
     if (!t || FIGURE_LINE.test(t) || UNIT_LINE.test(t) || /^\d{1,2}\.\d/.test(t)) return null;
     var m = /^question\s+(\d{1,2})\b/i.exec(t);
-    if (!m) m = /^(\d{1,2})\s*\([a-z]\)/.exec(t);              // 3 (a) ...
-    // "2 Fig. 2.1 shows..." / "1 A student..." - require a real sentence after
-    // the number so short quantities such as "10 N" or "2 A" are not counted.
+    if (!m) m = /^(\d{1,2})\s*\([a-z]\)/.exec(t);
     if (!m) m = /^(\d{1,2})\s+(?=[A-Z][A-Za-z0-9 ,.'’\-]{6,})/.exec(t);
-    if (!m) m = /^(\d{1,2})\s*$/.exec(t);                       // number in its own column
+    if (!m) m = /^(\d{1,2})\s*$/.exec(t);
     if (!m) return null;
     var n = parseInt(m[1], 10);
     if (n < 1 || n > 20) return null;
@@ -173,19 +189,22 @@
     return n;
   }
 
-  // Detect question markers for one page, carrying the running number across pages.
-  function detectQuestions(lines, lastNumber) {
-    var markers = [];
-    var last = lastNumber || 0;
+  // lineMeta[i] = {x, y, w, h}; pageWidth in PDF units. Question numbers live
+  // in the LEFT MARGIN; centred/footnote numbers must be ignored.
+  function detectQuestions(lines, lastNumber, lineMeta, pageWidth) {
+    var markers = [], last = lastNumber || 0;
     var footerStart = Math.max(0, lines.length - 3);
     for (var i = 0; i < lines.length; i++) {
-      // A bare number near the bottom of a page is almost always the PRINTED
-      // page number in the footer, not a question number.
       if (i >= footerStart && /^\s*\d{1,3}\s*$/.test(String(lines[i] || ''))) continue;
+      var bare = /^\s*\d{1,2}\s*$/.test(String(lines[i] || ''));
+      if (lineMeta && pageWidth) {
+        var lm = lineMeta[i];
+        if (!lm || typeof lm.x !== 'number') continue;
+        var leftLimit = bare ? 0.28 : 0.36;
+        if (lm.x > pageWidth * leftLimit) continue;   // not a left-margin number
+      }
       var n = questionAtLine(lines[i]);
       if (n === null) continue;
-      // Question numbers in a paper rise roughly sequentially. This rejects
-      // stray quantities such as "12 N" or figure labels.
       if (n < last || n > last + 4) continue;
       last = n;
       markers.push({ line: i, number: n });
@@ -193,36 +212,66 @@
     return { markers: markers, lastNumber: last };
   }
 
-  function printedPageCandidate(lines) {
-    var tail = lines.slice(-14);
+  // POSITIONAL printed-page detection. items: [{text,x,y,w,h}] in PDF user
+  // space (y measured from the BOTTOM of the page). A printed page number is
+  // in the bottom band AND horizontally centred.
+  function printedPageFromItems(items, pageWidth, pageHeight) {
+    if (!items || !pageWidth || !pageHeight) return null;
+    var found = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var t = String(it.text == null ? '' : it.text).trim();
+      if (!t) continue;
+      var m = /^page\s+(\d{1,3})\b/i.exec(t) ||
+              /^(\d{1,3})\s*\/\s*\d{1,3}$/.exec(t) ||
+              /^(\d{1,3})$/.exec(t);
+      if (!m) continue;
+      var n = parseInt(m[1], 10);
+      if (n < 1 || n > 300) continue;
+      var cx = (it.x || 0) + (it.w || 0) / 2;
+      var y = it.y || 0;
+      if (y > pageHeight * 0.16) continue;                       // not in the footer band
+      if (cx < pageWidth * 0.28 || cx > pageWidth * 0.72) continue;  // not centred
+      found.push({ n: n, y: y });
+    }
+    if (!found.length) return null;
+    found.sort(function (a, b) { return a.y - b.y; });            // lowest = footer
+    return found[0].n;
+  }
+
+  // Text-only fallback (OCR / no coordinate data). Banned numbers are the
+  // question numbers detected on that page - they must never be reused as a
+  // printed page number.
+  function printedPageCandidate(lines, bannedQuestionNumbers) {
+    var banned = bannedQuestionNumbers || [];
+    var tail = lines.slice(-5);
     for (var i = tail.length - 1; i >= 0; i--) {
       var t = String(tail[i] || '').trim();
       if (!t) continue;
       var a = /^page\s+(\d{1,3})\b/i.exec(t);
-      if (a) return parseInt(a[1], 10);
       var b = /^(\d{1,3})\s*\/\s*\d{1,3}$/.exec(t);
-      if (b) return parseInt(b[1], 10);
       var c = /^(\d{1,3})$/.exec(t);
-      if (c && !/turn over|uc les|uc|©/i.test(t)) {
-        var n = parseInt(c[1], 10);
-        if (n >= 1 && n <= 200) return n;
-      }
+      var n = a ? parseInt(a[1], 10) : b ? parseInt(b[1], 10) : c ? parseInt(c[1], 10) : null;
+      if (n === null) continue;
+      if (banned.indexOf(n) !== -1) continue;      // <-- the bug fix
+      if (n >= 1 && n <= 300) return n;
     }
     return null;
   }
 
-  // Only report printed page numbers when the candidates form a consistent
-  // sequence (printed number - physical page is the same for most pages).
   function resolvePrintedPages(pages) {
     var offsets = [];
     for (var i = 0; i < pages.length; i++) {
-      if (pages[i].printedCandidate !== null && pages[i].printedCandidate !== undefined) {
-        offsets.push({ page: pages[i].pdfPage, offset: pages[i].printedCandidate - pages[i].pdfPage });
-      }
+      var p = pages[i];
+      var c = p.printedCandidate;
+      if (c === null || c === undefined) continue;
+      // Hard guard: a printed page number may never equal a question number on
+      // the same page unless it was positionally confirmed in the footer.
+      if (!p.printedPositional && p.questionNumbers && p.questionNumbers.indexOf(c) !== -1) continue;
+      offsets.push({ page: p.pdfPage, offset: c - p.pdfPage });
     }
     if (offsets.length < 3) return { reliable: false, offset: null };
-    var counts = {};
-    var best = null, bestCount = 0;
+    var counts = {}, best = null, bestCount = 0;
     for (var j = 0; j < offsets.length; j++) {
       var k = String(offsets[j].offset);
       counts[k] = (counts[k] || 0) + 1;
@@ -236,142 +285,140 @@
    * 4. Classification
    * ------------------------------------------------------------------ */
 
-  function classify(text) {
-    var anchors = matchIds(text, ANCHORS);
-    var weak = matchIds(text, WEAK);
-    var em = matchIds(text, EM);
+  function classify(rawText) {
+    var text = normalizeText(rawText);
+    var a = matchTerms(text, ANCHORS);
+    var w = matchTerms(text, WEAK);
+    var e = matchTerms(text, EM);
+    var fam = a.families.length, wfam = w.families.length, efam = e.families.length;
+    var score = fam * 3 + wfam - efam * 2;
     var bucket, reason;
 
-    if (anchors.length === 0) {
-      if (em.length >= 1) {
-        bucket = 'excluded';
-        reason = 'Electromagnetism wording only (no basic-magnetism concept)';
-      } else if (weak.length >= 2) {
-        bucket = 'review';
-        reason = 'Generic magnetism wording, no specific basic-magnetism concept';
-      } else {
-        bucket = 'excluded';
-        reason = 'No magnetism wording detected';
-      }
-    } else if (em.length >= 2 && anchors.length <= 1) {
+    if (fam === 0) {
+      if (efam >= 1) { bucket = 'excluded'; reason = 'Electromagnetism wording only (no basic-magnetism concept)'; }
+      else if (wfam >= 2) { bucket = 'review'; reason = 'Generic magnetism wording, no specific basic-magnetism concept'; }
+      else { bucket = 'excluded'; reason = 'No magnetism wording detected'; }
+    } else if (efam >= 2 && fam <= 1) {
       bucket = 'review';
       reason = 'Also mentions electromagnetism (motor / coil / induction / transformer) - check whether it tests basic magnetism';
-    } else if (em.length >= 3) {
-      bucket = 'review';
-      reason = 'Mixed basic-magnetism and electromagnetism wording';
+    } else if (efam >= 3) {
+      bucket = 'review'; reason = 'Mixed basic-magnetism and electromagnetism wording';
     } else {
-      bucket = 'match';
-      reason = '';
+      bucket = 'match'; reason = '';
     }
 
     return {
-      bucket: bucket,
-      reason: reason,
-      anchors: anchors,
-      weak: weak,
-      em: em,
-      terms: anchors.concat(weak.filter(function (w) { return anchors.indexOf(w) === -1; }))
+      bucket: bucket, reason: reason,
+      anchors: a.ids, anchorFamilies: a.families,
+      weak: w.ids, weakFamilies: w.families,
+      em: e.ids, emFamilies: e.families,
+      score: score,
+      terms: unique(a.ids.concat(w.ids))
     };
   }
 
   /* ------------------------------------------------------------------ *
    * 5. Document analysis
-   * pages: [{ pdfPage: 1-based, lines: [string], text: string, ocr: bool }]
-   * Returns: { hits: [...], excludedCount, pageCount, printedReliable }
    * ------------------------------------------------------------------ */
 
   function analyzeDocument(pages, meta) {
     meta = meta || {};
     var filename = meta.filename || 'unknown.pdf';
     var parsed = parseFilename(filename);
-    var printed = resolvePrintedPages(pages);
     var textComp = componentFromText(pages);
     if (!parsed.component && textComp) {
       parsed.component = textComp;
       parsed.componentLabel = COMPONENT_LABELS[textComp] || ('0625/' + textComp);
       parsed.componentSource = 'PDF header';
-    } else if (parsed.component) {
-      parsed.componentSource = 'filename';
-    }
+    } else if (parsed.component) parsed.componentSource = 'filename';
 
-    // Build question blocks for each page.
-    var lastNumber = 0;
-    var blocks = [];
+    // Resolve printed candidates first (positional preferred, text fallback).
+    var lastNumber = 0, prepared = [];
     for (var p = 0; p < pages.length; p++) {
       var page = pages[p];
       var lines = page.lines || [];
-      var dq = detectQuestions(lines, lastNumber);
+      var dq = detectQuestions(lines, lastNumber, page.lineMeta, page.pageWidth);
       lastNumber = dq.lastNumber;
-      var markers = dq.markers;
-      var printedNo = printed.reliable ? (page.pdfPage + printed.offset) : null;
-      var pageInfo = { pdfPage: page.pdfPage, printed: printedNo, ocr: !!page.ocr, lines: lines };
+      var qnums = unique(dq.markers.map(function (m) { return m.number; }));
+      var cand = page.printedCandidate;
+      var positional = !!page.printedPositional;
+      if (cand === null || cand === undefined) {
+        cand = printedPageCandidate(lines, qnums);
+        positional = false;
+      }
+      prepared.push({
+        page: page, lines: lines, markers: dq.markers, qnums: qnums,
+        printedCandidate: cand, printedPositional: positional
+      });
+    }
+    var printed = resolvePrintedPages(prepared.map(function (x) {
+      return {
+        pdfPage: x.page.pdfPage, printedCandidate: x.printedCandidate,
+        printedPositional: x.printedPositional, questionNumbers: x.qnums
+      };
+    }));
 
+    // Build question blocks.
+    var blocks = [];
+    for (var b = 0; b < prepared.length; b++) {
+      var pr = prepared[b];
+      var pg = pr.page, lines2 = pr.lines, markers = pr.markers;
+      var printedNo = printed.reliable ? (pg.pdfPage + printed.offset) : null;
+      // Extra guard: never surface a printed page identical to a question
+      // number unless it was positionally verified in the footer.
+      if (printedNo !== null && !pr.printedPositional && pr.qnums.indexOf(printedNo) !== -1) printedNo = null;
+      var base = {
+        pdfPage: pg.pdfPage, printed: printedNo, printedPositional: pr.printedPositional,
+        ocr: !!pg.ocr, pageWidth: pg.pageWidth, pageHeight: pg.pageHeight
+      };
       var pageBlocks = [];
       if (markers.length === 0) {
-        pageBlocks.push({
-          pdfPage: page.pdfPage, printed: printedNo, ocr: !!page.ocr,
-          qnum: null, continuation: (p > 0), sourceLines: lines.length,
-          text: (page.text || lines.join('\n'))
-        });
+        pageBlocks.push(Object.assign({}, base, {
+          qnum: null, continuation: (b > 0), startLine: 0, endLine: lines2.length,
+          text: pg.text || lines2.join('\n')
+        }));
       } else {
-        // Any text before the first question marker belongs to the previous
-        // question (a question continuing from the previous page).
         if (markers[0].line > 0) {
-          pageBlocks.push({
-            pdfPage: page.pdfPage, printed: printedNo, ocr: !!page.ocr,
-            qnum: null, continuation: true,
-            sourceLines: markers[0].line,
-            text: lines.slice(0, markers[0].line).join('\n')
-          });
+          pageBlocks.push(Object.assign({}, base, {
+            qnum: null, continuation: true, startLine: 0, endLine: markers[0].line,
+            text: lines2.slice(0, markers[0].line).join('\n')
+          }));
         }
-        for (var b = 0; b < markers.length; b++) {
-          var start = markers[b].line;
-          var end = (b + 1 < markers.length) ? markers[b + 1].line : lines.length;
-          pageBlocks.push({
-            pdfPage: page.pdfPage, printed: printedNo, ocr: !!page.ocr,
-            qnum: markers[b].number, continuation: false,
-            sourceLines: end - start,
-            text: lines.slice(start, end).join('\n')
-          });
+        for (var k = 0; k < markers.length; k++) {
+          var start = markers[k].line;
+          var end = (k + 1 < markers.length) ? markers[k + 1].line : lines2.length;
+          pageBlocks.push(Object.assign({}, base, {
+            qnum: markers[k].number, continuation: false, startLine: start, endLine: end,
+            text: lines2.slice(start, end).join('\n')
+          }));
         }
       }
-      for (var pb = 0; pb < pageBlocks.length; pb++) blocks.push(pageBlocks[pb]);
-      pageInfo.markers = markers;
+      for (var q = 0; q < pageBlocks.length; q++) blocks.push(pageBlocks[q]);
     }
+    blocks.sort(function (a, c) { return a.pdfPage - c.pdfPage; });
 
-    blocks.sort(function (a, b) { return a.pdfPage - b.pdfPage || 0; });
-
-    // Classify blocks.
     var signals = [];
     for (var s = 0; s < blocks.length; s++) {
-      var blk = blocks[s];
-      var cls = classify(blk.text);
+      var cls = classify(blocks[s].text);
       if (cls.bucket === 'excluded') {
-        if (cls.em.length > 0 || cls.weak.length > 0) {
-          signals.push({ block: blk, cls: cls, bucket: 'excluded' });
-        }
+        if (cls.em.length > 0 || cls.weak.length > 0) signals.push({ block: blocks[s], cls: cls, bucket: 'excluded' });
         continue;
       }
-      signals.push({ block: blk, cls: cls, bucket: cls.bucket });
+      signals.push({ block: blocks[s], cls: cls, bucket: cls.bucket });
     }
 
-    // Continuation: a block with no question number inherits the number of
-    // the nearest earlier basic-magnetism signal on the previous page.
+    // Continuation inheritance.
     for (var c = 0; c < signals.length; c++) {
       var sig = signals[c];
-      if (sig.bucket === 'excluded') continue;
-      if (sig.block.qnum !== null) continue;
+      if (sig.bucket === 'excluded' || sig.block.qnum !== null) continue;
       var inherited = null, inheritedPage = -1;
-      for (var e = c - 1; e >= 0; e--) {
-        var prev = signals[e];
-        if (prev.bucket === 'excluded') continue;
-        if (prev.block.qnum === null) continue;
+      for (var e2 = c - 1; e2 >= 0; e2--) {
+        var prev = signals[e2];
+        if (prev.bucket === 'excluded' || prev.block.qnum === null) continue;
         if (sig.block.pdfPage - prev.block.pdfPage <= 1) {
-          inherited = prev.block.qnum;
-          inheritedPage = prev.block.pdfPage;
-          break;
+          inherited = prev.block.qnum; inheritedPage = prev.block.pdfPage;
         }
-        break; // only look at the immediately preceding page
+        break;
       }
       sig.block.qnum = inherited;
       if (inherited !== null && inheritedPage !== sig.block.pdfPage) {
@@ -380,13 +427,10 @@
       }
     }
 
-    // Merge signals that belong to the same question across consecutive pages.
-    var used = {};
-    var hits = [];
+    var used = {}, hits = [];
     for (var h = 0; h < signals.length; h++) {
       if (used[h]) continue;
-      var first = signals[h];
-      var group = [first];
+      var first = signals[h], group = [first];
       used[h] = true;
       for (var g = h + 1; g < signals.length; g++) {
         if (used[g]) continue;
@@ -396,98 +440,79 @@
         if (other.block.qnum !== first.block.qnum) continue;
         var maxPage = Math.max.apply(null, group.map(function (x) { return x.block.pdfPage; }));
         if (other.block.pdfPage > maxPage + 1) continue;
-        group.push(other);
-        used[g] = true;
+        group.push(other); used[g] = true;
       }
 
-      var pageNos = [];
-      var printedNos = [];
-      var terms = {};
-      var ocr = false, continuation = false, bucket = first.bucket;
-      var reasons = [];
-      for (var k = 0; k < group.length; k++) {
-        var it = group[k];
-        if (pageNos.indexOf(it.block.pdfPage) === -1) pageNos.push(it.block.pdfPage);
-        if (it.block.printed !== null && it.block.printed !== undefined && printedNos.indexOf(it.block.printed) === -1) printedNos.push(it.block.printed);
-        for (var t = 0; t < it.cls.terms.length; t++) terms[it.cls.terms[t]] = true;
-        if (it.block.ocr) ocr = true;
-        if (it.block.continuation || it.block.inheritedFromPage) continuation = true;
-        if (it.cls.reason && reasons.indexOf(it.cls.reason) === -1) reasons.push(it.cls.reason);
+      var pageNos = [], printedNos = [], terms = {}, reasons = [], fams = {};
+      var ocr = false, continuation = false, score = 0, anyPositional = false;
+      for (var t = 0; t < group.length; t++) {
+        var it2 = group[t];
+        if (pageNos.indexOf(it2.block.pdfPage) === -1) pageNos.push(it2.block.pdfPage);
+        if (it2.block.printed !== null && printedNos.indexOf(it2.block.printed) === -1) printedNos.push(it2.block.printed);
+        for (var u = 0; u < it2.cls.terms.length; u++) terms[it2.cls.terms[u]] = true;
+        for (var f = 0; f < it2.cls.anchorFamilies.length; f++) fams[it2.cls.anchorFamilies[f]] = true;
+        score = Math.max(score, it2.cls.score);
+        if (it2.block.ocr) ocr = true;
+        if (it2.block.continuation || it2.block.inheritedFromPage) continuation = true;
+        if (it2.block.printedPositional) anyPositional = true;
+        if (it2.cls.reason && reasons.indexOf(it2.cls.reason) === -1) reasons.push(it2.cls.reason);
       }
-      pageNos.sort(function (a, b) { return a - b; });
-      printedNos.sort(function (a, b) { return a - b; });
+      pageNos.sort(function (a, z) { return a - z; });
+      printedNos.sort(function (a, z) { return a - z; });
 
       var qnum = first.block.qnum;
-      var uncertain = false;
-      var uncertainReasons = [];
-      if (bucket === 'review') {
-        uncertain = true;
-        uncertainReasons = reasons.length ? reasons : ['Needs review'];
-      }
+      var uncertain = false, uncertainReasons = [];
+      if (first.bucket === 'review') { uncertain = true; uncertainReasons = reasons.length ? reasons : ['Needs review']; }
       if (qnum === null) { uncertain = true; uncertainReasons.push('Question number not identifiable'); }
       if (ocr) { uncertain = true; uncertainReasons.push('Text came from OCR (check the page image)'); }
       if (continuation) { uncertain = true; uncertainReasons.push('Question may continue across pages - verify the range'); }
-      if (first.cls.anchors.length < 2) {
+      if (Object.keys(fams).length < 2) {
         uncertain = true;
         if (uncertainReasons.indexOf('Only one basic-magnetism keyword') === -1) uncertainReasons.push('Only one basic-magnetism keyword');
       }
 
-      var label = pageNos.length === 1
-        ? String(pageNos[0])
-        : (pageNos[0] + '-' + pageNos[pageNos.length - 1]);
-      var printedLabel = printedNos.length === 1
-        ? String(printedNos[0])
-        : (printedNos.length ? printedNos[0] + '-' + printedNos[printedNos.length - 1] : null);
+      var label = pageNos.length === 1 ? String(pageNos[0]) : (pageNos[0] + '-' + pageNos[pageNos.length - 1]);
+      var printedLabel = printedNos.length === 1 ? String(printedNos[0]) :
+        (printedNos.length ? printedNos[0] + '-' + printedNos[printedNos.length - 1] : null);
+      // Final safety: if the printed number still equals the question number
+      // and was NOT positionally confirmed, suppress it entirely.
+      if (printedLabel !== null && !anyPositional && String(qnum) === String(printedNos[0])) printedLabel = null;
 
       hits.push({
         id: filename + '|' + (qnum === null ? 'q?' : qnum) + '|' + label,
-        filename: filename,
-        component: parsed.component,
-        componentLabel: parsed.componentLabel,
-        componentSource: parsed.componentSource || null,
-        syllabus: parsed.syllabus,
-        year: parsed.year,
-        session: parsed.session,
-        question: qnum,
-        questionLabel: qnum === null ? 'Not identifiable' : String(qnum),
-        pages: pageNos,
-        pageLabel: label,
-        printedPages: printedNos,
-        printedLabel: printedLabel,
-        printedReliable: printed.reliable,
-        terms: Object.keys(terms),
-        bucket: bucket,
-        uncertain: uncertain,
-        uncertainReasons: uncertainReasons,
-        ocr: ocr,
-        continuation: continuation,
-        confidence: (bucket === 'review') ? 'Low' : (uncertain ? 'Medium' : 'High'),
+        filename: filename, component: parsed.component,
+        componentLabel: parsed.componentLabel, componentSource: parsed.componentSource || null,
+        syllabus: parsed.syllabus, year: parsed.year, session: parsed.session,
+        question: qnum, questionLabel: qnum === null ? 'Not identifiable' : String(qnum),
+        pages: pageNos, pageLabel: label,
+        printedPages: printedNos, printedLabel: printedLabel,
+        printedReliable: printed.reliable, printedPositional: anyPositional,
+        terms: Object.keys(terms), anchorFamilies: Object.keys(fams), score: score,
+        bucket: first.bucket, uncertain: uncertain, uncertainReasons: uncertainReasons,
+        ocr: ocr, continuation: continuation,
+        confidence: first.bucket === 'review' ? 'Low' : (score >= 7 && !uncertain ? 'High' : 'Medium'),
+        cropHint: { startLine: first.block.startLine, endLine: first.block.endLine },
         review: 'unreviewed'
       });
     }
 
-    hits.sort(function (a, b) {
-      return a.filename.localeCompare(b.filename) || (a.pages[0] - b.pages[0]) || ((a.question || 0) - (b.question || 0));
+    hits.sort(function (a, z) {
+      return a.filename.localeCompare(z.filename) || (a.pages[0] - z.pages[0]) || ((a.question || 0) - (z.question || 0));
     });
 
     return {
-      hits: hits,
-      pageCount: pages.length,
-      printedReliable: printed.reliable,
-      component: parsed.component,
-      componentLabel: parsed.componentLabel
+      hits: hits, pageCount: pages.length, printedReliable: printed.reliable,
+      component: parsed.component, componentLabel: parsed.componentLabel
     };
   }
 
   return {
-    parseFilename: parseFilename,
-    componentFromText: componentFromText,
-    questionAtLine: questionAtLine,
-    detectQuestions: detectQuestions,
-    printedPageCandidate: printedPageCandidate,
-    resolvePrintedPages: resolvePrintedPages,
-    classify: classify,
-    analyzeDocument: analyzeDocument,
+    normalizeText: normalizeText,
+    parseFilename: parseFilename, componentFromText: componentFromText,
+    questionAtLine: questionAtLine, detectQuestions: detectQuestions,
+    printedPageFromItems: printedPageFromItems,
+    printedPageCandidate: printedPageCandidate, resolvePrintedPages: resolvePrintedPages,
+    classify: classify, analyzeDocument: analyzeDocument,
     ANCHORS: ANCHORS, WEAK: WEAK, EM: EM
   };
 });
