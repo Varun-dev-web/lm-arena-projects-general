@@ -882,24 +882,86 @@
       return '<option value="' + p + '">PDF page ' + p + '</option>';
     }).join('');
     $('cropPageSelect').value = String(pagesList[0]);
+    populateMsPageTools(hit, source, doc, pagesList);
     $('cropModal').hidden = false;
+    var session = state.crop;
     try {
       for (var i = 0; i < pagesList.length; i++) {
         var p = pagesList[i];
-        $('cropSub').textContent = 'Rendering ' + (state.crop.source === 'ms' ? 'MS' : 'QP') +
+        $('cropSub').textContent = 'Rendering ' + (source === 'ms' ? 'MS' : 'QP') +
           ' PDF page ' + p + ' of ' + pagesList[pagesList.length - 1] + '…';
         var pm = doc.pageMeta[p];
         var scale = Math.min(2.4, 1900 / ((pm && pm.pageWidth) || 595));
-        state.crop.images[p] = await renderPdfPageToCanvas(doc.pdf, p, scale);
-        if (!state.crop) return;                    // cancelled while rendering
+        var rendered = await renderPdfPageToCanvas(doc.pdf, p, scale);
+        // A manual MS page change can re-open the editor while this render was
+        // in flight. Never write into the newer editor's state.
+        if (state.crop !== session) return;
+        session.images[p] = rendered;
       }
     } catch (e) {
+      if (state.crop !== session) return;
       $('cropSub').textContent = 'Could not render this page: ' + e.message;
       return;
     }
-    if (!state.crop) return;
-    $('cropSub').textContent = 'Drag the box, drag a corner handle, or type percentages. Then save the capture(s).';
+    if (state.crop !== session) return;
+    $('cropSub').textContent = (source === 'ms'
+      ? 'Pick the exact MS PDF page above, then align its crop. Drag the box, drag a corner handle, or type percentages.'
+      : 'Drag the box, drag a corner handle, or type percentages. Then save the capture(s).');
     renderCropPage();
+  }
+
+  /* v3.1: the user can MANUALLY align which MS PDF page is captured. Every page
+   * of the matched MS document is offered, not just the auto-detected page(s). */
+  function populateMsPageTools(hit, source, doc, pagesList) {
+    var box = $('msPageTools');
+    if (source !== 'ms') { box.hidden = true; return; }
+    box.hidden = false;
+    var total = (doc.pdf && doc.pdf.numPages) || doc.pageCount || 1;
+    var detected = (pagesList || []).slice();
+    var opts = [];
+    for (var n = 1; n <= total; n++) {
+      opts.push('<option value="' + n + '">PDF page ' + n +
+        (detected.indexOf(n) !== -1 ? ' (auto-detected)' : '') + '</option>');
+    }
+    $('msPageSelect').innerHTML = opts.join('');
+    $('msPageSelect').value = String(pagesList[0]);
+    $('msPageNote').textContent = hit.msFilename + ' has ' + total + ' physical page(s). ' +
+      'Auto-detected: ' + (hit.msLabel || '—') + '. Pick any page, then "Use this page (manual)" ' +
+      'replaces the current MS page(s), or "+ Add this page" keeps both in order.';
+  }
+  function applyMsPages(hit, pages, note) {
+    hit.msPages = pages.slice();
+    hit.msLabel = pages.length > 1 ? pages[0] + '–' + pages[pages.length - 1] : String(pages[0]);
+    hit.msCropHint = null;
+    hit.msUncertain = false;
+    hit.msStatus = '';
+    delete state.msCaptures[hit.id];
+    delete state.msCropRects[hit.id];
+    invalidateCompiled();
+    closeCropEditor();
+    renderResults();
+    setStatus('MS page aligned manually: ' + hit.msFilename + ' · Q' + hit.questionLabel +
+      ' · PDF page ' + hit.msLabel + (note ? ' (' + note + ')' : '') + '.');
+    openCropEditor(hit, 'ms');
+  }
+  function setMsPage() {
+    var c = state.crop;
+    if (!c || c.source !== 'ms') return;
+    var hit = c.hit, doc = state.msDocs[hit.msFilename];
+    var total = (doc && doc.pdf && doc.pdf.numPages) || 1;
+    var n = clamp(Math.round(parseInt($('msPageSelect').value, 10) || 1), 1, total);
+    applyMsPages(hit, [n], 'manual page override');
+  }
+  function addMsPage() {
+    var c = state.crop;
+    if (!c || c.source !== 'ms') return;
+    var hit = c.hit, doc = state.msDocs[hit.msFilename];
+    var total = (doc && doc.pdf && doc.pdf.numPages) || 1;
+    var n = clamp(Math.round(parseInt($('msPageSelect').value, 10) || 1), 1, total);
+    var pages = (hit.msPages || [1]).slice();
+    if (pages.indexOf(n) === -1) pages.push(n);
+    pages.sort(function (a, b) { return a - b; });
+    applyMsPages(hit, pages, 'extra MS page added');
   }
   function renderCropPage() {
     if (!state.crop) return;
@@ -1248,6 +1310,11 @@
       state.crop.page = parseInt($('cropPageSelect').value, 10);
       renderCropPage();
     });
+    // v3.1: manual MS page alignment. Choosing a page in the dropdown does NOT
+    // change anything by itself; the two explicit buttons do, so "add" can pick a
+    // page different from the one currently captured.
+    $('btnMsUsePage').addEventListener('click', setMsPage);
+    $('btnMsAddPage').addEventListener('click', addMsPage);
     $('btnAutoCrop').addEventListener('click', function () {
       if (!state.crop) return;
       state.crop.rects[state.crop.page] = defaultRect(

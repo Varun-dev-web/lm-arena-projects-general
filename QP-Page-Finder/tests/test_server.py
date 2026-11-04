@@ -110,7 +110,9 @@ def run_suite(label, cmd, port):
         check(label + ": UI has two separate QP/MS folder bars and two approve buttons",
               b'id="folderPath"' in body and b'id="msFolderPath"' in body and
               b'id="msFolderPicker"' in body and b'id="btnApproveMsDownload"' in body and
-              b'id="previewSource"' in body and b'id="btnPrint"' in body)
+              b'id="previewSource"' in body and b'id="btnPrint"' in body and
+              b'id="msPageSelect"' in body and b'id="btnMsUsePage"' in body and
+              b'id="btnMsAddPage"' in body)
         csp = hdr.get("Content-Security-Policy", "")
         check(label + ": CSP forbids external connections", "connect-src 'self'" in csp and
               "default-src 'self'" in csp, csp[:120])
@@ -134,7 +136,7 @@ def run_suite(label, cmd, port):
         check(label + ": v3 dual-build app served",
               code == 200 and b"loadMarkSchemes" in body and
               b"MS-Magnetism-A4.pdf" in body and b"QP-Magnetism-A4.pdf" in body and
-              b"makeA4Pdf" in body)
+              b"makeA4Pdf" in body and b"setMsPage" in body and b"addMsPage" in body)
         code, hdr, body = get(base + "/style.css")
         check(label + ": v3 dual-folder styling served", code == 200 and b"folder-divider" in body)
 

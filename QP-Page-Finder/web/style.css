@@ -283,3 +283,13 @@ footer code { background: #e9edf6; }
 .ms-missing { color: #8a5a00; font-style: italic; }
 .approve-bar select { max-width: 190px; }
 #cropSourceBadge { margin-left: 10px; }
+
+/* v3.1: manual MS PAGE alignment inside the crop editor */
+.ms-page-tools {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  margin: 0 0 12px; padding: 10px 12px;
+  background: #fff7e2; border: 1px solid #ecd6a0; border-radius: 8px;
+}
+.ms-page-tools strong { color: #7a4f00; font-size: 13px; }
+.ms-page-tools select { max-width: 320px; }
+.ms-page-tools .hint { flex-basis: 100%; margin: 0; }

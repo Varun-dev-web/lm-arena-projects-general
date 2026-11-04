@@ -1,4 +1,4 @@
-# QP Page Finder v3 — testing report & limitations
+# QP Page Finder v3.1 — testing report & limitations
 
 **Date:** 2026-11-03 · **Packaged for:** Windows (macOS/Linux launchers included)
 
@@ -31,9 +31,9 @@ labels and hrefs** — no PDF bytes or HTTP response headers were fetched.
 | JS / Python syntax | `node --check web/app.js`, `node --check web/analyze.js`, `node --check tests/test_analyze.js`, `node --check tests/test_e2e.js`, `python3 -m py_compile server.py` | Pass |
 | Analysis engine (40 assertion groups: v2 classification/term families, positional footer printed pages, crop hints, **plus v3 MS filename parsing, year/session/component matching, MS row-marker detection, exact MS page index, centred-number guard**) | `node tests/test_analyze.js` | **40/40 passed** |
 | Both servers (Python + Node): every endpoint, CSP/privacy headers, path traversal, bundled asset delivery (pdf.js, OCR WASM/data, **jsPDF + licence**), **synthetic MS fixtures in the scan**, **dual folder bars / dual approve buttons / v3 engine served**, read-only guarantee | `python3 tests/test_server.py /home/user/qp-preview-pdfs` | **52 checks passed** (1 static + 25 Python + 25 Node + 1 shared hash) |
-| Real-browser E2E, **Python server, from source**, port 8777 | `LD_LIBRARY_PATH=… NODE_PATH=… QP_BASE_URL=http://127.0.0.1:8777 node tests/test_e2e.js` | **83/83 passed**, 0 external requests, 0 uncaught errors |
-| Real-browser E2E, **Node.js server, from source**, port 8898 | `QP_BASE_URL=http://127.0.0.1:8898 node tests/test_e2e.js` | **83/83 passed**, 0 external requests, 0 uncaught errors |
-| **The packaged ZIP itself**: extracted `qp-page-finder-windows.zip` into a temp folder, placed the 8 synthetic PDFs beside it (exactly as a user would), started `server.py` with **no `--folder` argument** on port 8897, then re-ran the browser test from the extracted `tests/` folder | `QP_BASE_URL=http://127.0.0.1:8897 node tests/test_e2e.js` | health `{"ok": true, ...}`, default folder auto-detected (**8 PDFs**), **83/83 passed**, 0 external requests |
+| Real-browser E2E, **Python server, from source**, port 8777 | `LD_LIBRARY_PATH=… NODE_PATH=… QP_BASE_URL=http://127.0.0.1:8777 node tests/test_e2e.js` | **91/91 passed**, 0 external requests, 0 uncaught errors |
+| Real-browser E2E, **Node.js server, from source**, port 8898 | `QP_BASE_URL=http://127.0.0.1:8898 node tests/test_e2e.js` | **91/91 passed**, 0 external requests, 0 uncaught errors |
+| **The packaged ZIP itself**: extracted `qp-page-finder-windows.zip` into a temp folder, placed the 8 synthetic PDFs beside it (exactly as a user would), started `server.py` with **no `--folder` argument** on port 8897, then re-ran the browser test from the extracted `tests/` folder | `QP_BASE_URL=http://127.0.0.1:8897 node tests/test_e2e.js` | health `{"ok": true, ...}`, default folder auto-detected (**8 PDFs**), **91/91 passed**, 0 external requests |
 | ZIP integrity | `zipfile.testzip()` | `None`; **49 entries** (~7.06 MB) |
 | Downloaded PDF byte checks | parsed **both** approved downloads in the E2E test | each starts `%PDF-`, `/MediaBox [0 0 595.28 841.89]` (A4), ≥1 `/Type /Page`; the two byte buffers are **not equal** |
 
@@ -55,7 +55,17 @@ labels and hrefs** — no PDF bytes or HTTP response headers were fetched.
   saving, the **same editor** opens for the MS (`MS` badge, MS filename in title),
   renders the exact matched MS page, and supports the identical numeric manual
   adjustment; saving it closes both editors.
-* The row shows `✓ QP 2/2 captured` and `✓ MS 1/1 captured`.
+* **v3.1 manual MS PAGE alignment:** the MS editor exposes an amber
+  *Manually align the MS page* row with a dropdown of **every physical page** of
+  the matched MS PDF (auto-detected page marked and preselected). The test
+  picks page 2 and presses **Use this page (manual)** — the results table's MS
+  page cell changes to `2`, the editor re-renders that page with real canvas
+  content, and the page dropdown / capture dropdown both read `2`. It switches
+  back to page 1, then picks page 2 again and presses **+ Add this page to MS
+  capture**, giving two MS pages in order (two options in the capture dropdown).
+  Choosing a page in the dropdown alone changes nothing; only the two explicit
+  buttons act, so "add" can select a different page from the one captured.
+* The row shows `✓ QP 2/2 captured` and `✓ MS 2/2 captured`.
 * The compile panel reports `QP sheets + MS sheets` separately and requires
   **both** captures before **Build A4 PDFs (preview)** is enabled.
 * The preview dropdown switches between the QP A4 PDF and the MS A4 PDF, each
@@ -94,7 +104,8 @@ labels and hrefs** — no PDF bytes or HTTP response headers were fetched.
   the MS question-page index uses left-margin row markers (`2 (a) …`,
   `Question 5`, bare margin numbers) with a footer/centred-number guard. If a
   question number cannot be detected, the app says `page ? (align)` and asks you
-  to align that MS page manually rather than guessing.
+  to align that MS page manually rather than guessing — the v3.1 MS page dropdown
+  is the manual override for exactly this case.
 * **Matching is filename-based.** It requires `0625_<m|s|w><yy>_ms_<cc>.pdf` and
   `0625_<m|s|w><yy>_qp_<cc>.pdf` with identical syllabus, series code and
   component. Renamed files, combined files or a different component numbering

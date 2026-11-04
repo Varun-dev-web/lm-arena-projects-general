@@ -18,6 +18,10 @@ a **separate A4 PDF**.
   Both use **the same manual alignment editor** (drag the box, drag a corner, type
   percentages, auto-select, full page) — the MS editor opens automatically after
   the QP one is saved.
+* **You can manually align the MS page too.** Inside that editor an amber row
+  offers **every physical page of the matched MS PDF**; **Use this page (manual)**
+  overrides the auto-detected page, and **+ Add this page to MS capture** adds a
+  second MS page for an answer that spans pages.
 * **Two separate A4 PDFs** are compiled in the same selected order:
   `QP-Magnetism-A4.pdf` and `MS-Magnetism-A4.pdf`. They are **never combined**.
 * You can switch the preview between the two PDFs, **open the current one for
@@ -118,7 +122,16 @@ time. A status line reports how many MS PDFs were indexed.
    region** / **Full page**). Cross-page questions have one box per page.
 3. Press **Save capture(s)** or **Use full page (skip aligning)**. The **same
    editor immediately opens for the matched MS page(s)** — identical controls,
-   with a clear `MS` badge and the MS filename in the title. Align and save it too.
+   with a clear `MS` badge and the MS filename in the title.
+   **Manually align the MS page:** the amber **Manually align the MS page** row
+   lists *every* physical page of the matched MS PDF (the auto-detected one is
+   marked). Pick any page, then:
+   * **Use this page (manual)** — replaces the auto-detected MS page with the one
+     you chose; the results table's **MS PDF page(s)** column updates at once and
+     the editor re-renders that exact page, or
+   * **+ Add this page to MS capture** — keeps the current page(s) **and** the
+     chosen page, in page order, when an answer spans two MS pages.
+   Then align the crop and save. You are never locked to the auto-detected page.
 4. Check **every question that needs checking**. The compile panel shows confirmed
    questions, complete QP+MS capture pairs, questions still to check, and
    `QP sheets + MS sheets`. **Build A4 PDFs (preview)** stays disabled until all
@@ -208,7 +221,7 @@ links, not official Cambridge URLs, and no real PDFs are bundled here.
 | "Could not list folder" | Type the correct absolute path and press **List … PDFs**, or use the folder picker |
 | "0 PDFs" | Point each bar at the folder that actually holds its PDFs |
 | MS column shows `—` | No MS in the MS folder matches that year / session / component. Add `0625_<series><yy>_ms_<component>.pdf`, or use **Capture / align QP** only |
-| MS column shows `page ? (align)` | The question number was not detected in the MS text; use the editor's page dropdown / full page and align manually |
+| MS column shows `page ? (align)` | The question number was not detected in the MS text. Open **Capture / align MS**, pick the right page in **Manually align the MS page**, press **Use this page (manual)**, then save |
 | **Build A4 PDFs (preview)** stays disabled | Check every uncertain question and save **both** a QP and an MS capture for each confirmed question |
 | Only one approve button enabled | No confirmed question had a matching MS; only the QP PDF exists. Add the MS PDF and re-scan |
 | A PDF is skipped | Password-protected / encrypted or corrupt. The app does not bypass PDF security |

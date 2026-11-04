@@ -275,6 +275,14 @@
       <span class="spacer"></span>
       <span class="badge muted" id="cropPageInfo">Page 1</span>
     </div>
+    <div id="msPageTools" class="ms-page-tools" hidden>
+      <strong>Manually align the MS page</strong>
+      <label class="lbl" for="msPageSelect">MS PDF page</label>
+      <select id="msPageSelect" aria-label="Choose the mark scheme PDF page"></select>
+      <button id="btnMsUsePage" class="btn ghost" type="button">Use this page (manual)</button>
+      <button id="btnMsAddPage" class="btn ghost" type="button">+ Add this page to MS capture</button>
+      <span class="hint small" id="msPageNote"></span>
+    </div>
     <div class="crop-body">
       <div class="crop-stage-wrap">
         <div id="cropStage" class="crop-stage">
@@ -287,8 +295,11 @@
         </div>
       </div>
       <div class="crop-side">
-        <p class="hint small">Crop box (% of page). The same box is used for each page of a question that
-          continues across pages; you can adjust each page separately.</p>
+        <p class="hint small">Crop box (% of page). For a MARK SCHEME you can also pick the exact MS PDF
+          page yourself in the <strong>Manually align the MS page</strong> row above — every page of the
+          matched MS PDF is offered, so you are never locked to the auto-detected page. Pick a page,
+          then <em>Use this page (manual)</em> to replace, or <em>+ Add this page to MS capture</em>
+          when an answer spans two MS pages.</p>
         <div class="numgrid">
           <label>Left %<input type="number" id="cropL" min="0" max="99" step="1"></label>
           <label>Top %<input type="number" id="cropT" min="0" max="99" step="1"></label>

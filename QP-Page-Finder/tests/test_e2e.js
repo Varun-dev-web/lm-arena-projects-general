@@ -266,6 +266,62 @@ function check(name, cond, extra) {
       return { w: c.width, h: c.height, dark: dark };
     });
     check('MS editor renders the exact matched MS page', msCropPixels.w > 300 && msCropPixels.dark > 20, msCropPixels);
+
+    /* ---- v3.1: MANUAL alignment of WHICH MS PDF page is used ---- */
+    check('MS editor exposes manual MS page alignment controls',
+      await page.locator('#msPageTools').isVisible());
+    const msPageOptions = await page.locator('#msPageSelect option').count();
+    check('every physical MS PDF page is offered, not just the detected one',
+      msPageOptions >= 2, msPageOptions);
+    check('auto-detected MS page is preselected',
+      (await page.locator('#msPageSelect').inputValue()) === '1');
+
+    const msCellFor = async () => (await page.locator(
+      `#resultsBody tr[data-hit-id="${firstId}"] td`).nth(5).innerText()).trim();
+    const waitMsCell = (want) => page.waitForFunction(({ id, want }) => {
+      const tr = document.querySelector(`#resultsBody tr[data-hit-id="${id}"]`);
+      return tr && tr.querySelectorAll('td')[5].innerText.trim() === want;
+    }, { id: firstId, want }, { timeout: 30000 });
+    const waitMsEditor = () => page.waitForFunction(() =>
+      /Pick the exact MS PDF page/.test(document.getElementById('cropSub').textContent) &&
+      document.getElementById('cropCanvas').width >= 600, null, { timeout: 30000 });
+    const useMsPage = async (n) => {
+      await page.selectOption('#msPageSelect', String(n));
+      await page.click('#btnMsUsePage');
+    };
+
+    await useMsPage(2);
+    await waitMsCell('2');
+    await waitMsEditor();
+    check('manually choosing MS page 2 updates the results table', (await msCellFor()) === '2');
+    check('manually chosen MS page 2 is actually rendered in the editor',
+      (await page.locator('#cropPageSelect').inputValue()) === '2' &&
+      (await page.locator('#msPageSelect').inputValue()) === '2');
+    const manualMsPixels = await page.evaluate(() => {
+      const c = document.getElementById('cropCanvas');
+      const d = c.getContext('2d').getImageData(0, 0, Math.min(c.width, 400), Math.min(c.height, 400)).data;
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 150 && d[i + 1] < 150 && d[i + 2] < 150) dark++;
+      return { w: c.width, dark: dark };
+    });
+    check('manually overridden MS page renders real page content',
+      manualMsPixels.w > 300 && manualMsPixels.dark > 20, manualMsPixels);
+
+    await useMsPage(1);
+    await waitMsCell('1');
+    await waitMsEditor();
+    check('MS page can be changed back manually', (await msCellFor()) === '1');
+
+    // Pick a DIFFERENT page in the dropdown and add it without replacing page 1.
+    await page.selectOption('#msPageSelect', '2');
+    await page.click('#btnMsAddPage');
+    await page.waitForFunction(id => {
+      const tr = document.querySelector(`#resultsBody tr[data-hit-id="${id}"]`);
+      return tr && /1.*2/.test(tr.querySelectorAll('td')[5].innerText.trim());
+    }, firstId, { timeout: 30000 });
+    await waitMsEditor();
+    check('"+ Add this page to MS capture" keeps both MS pages in order',
+      (await page.locator('#cropPageSelect option').count()) === 2, await msCellFor());
     // The MS editor must support the identical manual alignment controls.
     await page.locator('#cropL').fill('8');
     await page.locator('#cropL').dispatchEvent('change');
@@ -276,7 +332,7 @@ function check(name, cond, extra) {
     check('both capture editors close after saving', await page.locator('#cropModal').isHidden());
     const captureBadge = await page.locator(`#resultsBody tr[data-hit-id="${firstId}"] .capture-line`).innerText();
     check('QP and MS captures both shown on the confirmed row',
-      /QP 2\/2 captured/.test(captureBadge) && /MS 1\/1 captured/.test(captureBadge), captureBadge);
+      /QP 2\/2 captured/.test(captureBadge) && /MS 2\/2 captured/.test(captureBadge), captureBadge);
 
     await page.selectOption('#filter', 'relevant');
     check('review filter works', (await page.locator('#resultsBody tr').count()) >= 1);
